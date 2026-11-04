@@ -6,3 +6,7 @@ node_modules/
 .env.*
 *.zip
 preview.png
+
+*.log
+public/data/**/*.tmp
+public/data/**/.update.lock

@@ -1,6 +1,6 @@
 # APEX — F1, understood
 
-A desktop-first dashboard for completed **2026** Formula 1 sessions. Real historical data comes from OpenF1. No accounts, API keys, subscriptions, npm packages, or paid services are required to run the app. Internet is required to fetch race data.
+A desktop-first dashboard for completed **2026** Formula 1 sessions. Real historical data comes from OpenF1. No accounts, API keys, subscriptions, npm packages, or paid services are required to run the app. Internet is required for the updater or the optional online data source. Saved data is read locally by default. See [DATA.md](DATA.md) for the saved-file workflow.
 
 ## Run on your MacBook with VS Code
 
@@ -24,6 +24,10 @@ python3 -m http.server 5173 --bind 127.0.0.1 --directory public
 ```
 
 If port 5173 is already in use, an existing preview may be running: open the URL first. Alternatively use port 5174 in the Python command and browser address. Do not open `index.html` by double-clicking it; JavaScript modules need the local web server.
+
+## Saved data
+
+Run `npm run update-data` to save the latest completed weekend. Then select **Saved files** and click **Reload data**. Qualifying, races, sprint qualifying and sprints are included; practice is excluded. Full-season and correction options are documented in [DATA.md](DATA.md).
 
 ## Try it
 
@@ -54,7 +58,7 @@ Only sessions with an end time in the past and not marked cancelled are shown. T
 
 ## Free limits and privacy
 
-Responses are cached in browser storage for one hour, and requests are spaced out. Telemetry is requested for just the selected lap. **Refresh data** clears only this app's cache and reloads the season, so avoid clicking it repeatedly.
+In the optional online source, responses are cached in browser storage for one hour, and requests are spaced out. Telemetry is requested for just the selected lap. **Reload data** clears only this app's cache and reloads the season, so avoid clicking it repeatedly.
 
 If OpenF1 returns a rate limit, wait a minute and retry. If it restricts access or is unavailable, try later. This app does not bypass restricted or paid endpoints. No live data, paid fallback, tracking, sign-in, or external font service is included. Your browser connects directly to OpenF1, which receives ordinary request metadata.
 
@@ -74,4 +78,4 @@ Tests cover distance integration, signed acceleration, delta sign, identical-lap
 - `server.mjs` — local-only development server.
 - `tests/` — numerical regression tests.
 
-After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. Deployment is intentionally pending your approval.
+After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. Deployment remains pending. Rebuild any upload ZIP after changing app files or the saved archive.
