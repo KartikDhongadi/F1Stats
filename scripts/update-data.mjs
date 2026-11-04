@@ -1,6 +1,7 @@
 import {readFile, mkdir, open, unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {isRace} from '../public/race.js';
 import {eligibleSessions, assetKey} from '../public/data-store.js';
 import {atomicJson, validAsset, saveAsset, selectSessions} from './archive.mjs';
 const args = process.argv.slice(2);
@@ -81,6 +82,7 @@ try {
     const params={session_key:session.session_key};
     const drivers=await get('drivers', params);
     for(const endpoint of ['laps','session_result','stints','race_control','weather']) await get(endpoint,params);
+    if(isRace(session)){await get('position',params);await get('pit',params);}
     if(session.session_name==='Race') {
       await get('championship_drivers',params);
       await get('championship_teams',params);

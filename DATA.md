@@ -50,7 +50,7 @@ public/data/2026/
       ...
 ```
 
-A session's directory is named by its OpenF1 session key; driver telemetry filenames use driver numbers. Race sessions also contain `championship_drivers.json` and `championship_teams.json`.
+A session's directory is named by its OpenF1 session key; driver telemetry filenames use driver numbers. Grands Prix and sprints also contain `position.json` and `pit.json`. Grand Prix sessions additionally contain `championship_drivers.json` and `championship_teams.json`.
 
 Metadata is ordinary JSON arrays. Telemetry uses a losslessly gzip-compressed JSON table (`.json.gz`), decoded with the browser’s built-in decompressor:
 
@@ -64,7 +64,7 @@ The manifest records each file's row count, byte size, SHA-256 checksum and down
 
 ## What is downloaded
 
-Drivers, full-session sampled car data, all available laps and sectors, session classifications, tyre stints, weather, race-control messages, and Grand Prix championship standings. Location, team-radio audio, position/interval streams, and practice data are not included in this first archive. Weather, stints and race-control records are stored for future visual analysis; no new qualifying overview screen has been added yet.
+Drivers, full-session sampled car data, all available laps and sectors, session classifications, tyre stints, weather, race-control messages, and Grand Prix championship standings. Position updates and pit-lane visits are included for races and sprints. Location, team-radio audio, interval streams, and practice data are excluded. Qualifying and race overviews use the saved timing and context records; weather is stored but has no dedicated chart yet.
 
 The updater spaces requests by at least 2.2 seconds, retries temporary failures with backoff, and stops on restricted access. No paid endpoints, API keys, or subscriptions are used. Availability remains subject to OpenF1's free service. Source: https://openf1.org/docs/
 
@@ -77,3 +77,17 @@ Cloudflare must receive `public/data/` together with the app. A browser still do
 Before adding the **whole season** to Git, inspect the size printed by the updater. Full telemetry can be substantial. Start with selected weekends and review a full-season storage strategy before committing a large archive. The old `apex-cloudflare.zip` predates this change and must not be used for the updated site.
 
 The UI and downloader are fixed to 2026 by default. The updater's `--year` option can create another archive, but changing the displayed season requires updating the app as well.
+
+## Race overview alignment
+
+Positions use a common approximate race-lap clock: the earliest recorded completion or next-lap start for each lap. Only position observations at or before that instant are used. Missing crossings break lines, and retirements end at the last known completed-lap time. These are running positions, not the final classification or an overtaking count.
+
+Lap times and tyre strategy use each driver’s own lap number. For lapped drivers these differ from the leader’s clock. Event markers therefore appear only on the position chart. Events outside the actual recorded racing window are excluded; their race-lap labels are approximate.
+
+Tyre stints include their ending lap. Missing ends are inferred from the next stint or recorded completed-lap count and labelled. Pit diamonds come from pit-lane records, not tyre changes; stationary stop and total pit-lane durations are shown separately. The default 180-second pace ceiling is a display filter only. Select **All lap times** to include long laps and stoppages.
+
+Existing archives can add the race overview records without downloading telemetry again:
+
+```sh
+npm run update-data -- --all --metadata-only
+```

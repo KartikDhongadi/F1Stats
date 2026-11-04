@@ -32,6 +32,8 @@ Run `npm run update-data` to save the latest completed weekend. Then select **Sa
 ## Try it
 
 - **Season overview:** select a completed Grand Prix; inspect results, driver standings, and constructor standings. Standings are as of that race, not necessarily the latest race.
+- **Race overview:** select a Grand Prix or sprint. Show all drivers or narrow the field; inspect positions with the race-lap slider, click lap-time points, and review tyre stints, pit visits, and race-control events. The lap inspector opens telemetry or pins a lap for comparison. Long laps can be included with **All lap times**.
+- **Qualifying overview:** explore every driver’s attempts, Q/SQ phases, sector details and best times, then open a lap or comparison.
 - **Driver explorer:** pick a session, driver, and lap, then click **Load telemetry**. The fastest available non-pit-out lap is selected initially.
 - **Compare laps:** select two drivers/laps from the same session and load telemetry. A uses a solid lime trace and B uses a dashed blue trace.
 - Hover over a chart to inspect a shared distance cursor. Keyboard users can focus a chart and use arrow keys, Home, or End.
@@ -42,7 +44,7 @@ Run `npm run update-data` to save the latest completed weekend. Then select **Sa
 
 Source and endpoint documentation: https://openf1.org/docs/
 
-Endpoints: `sessions`, `drivers`, `session_result`, `championship_drivers`, `championship_teams`, `laps`, and `car_data`.
+Endpoints: `sessions`, `drivers`, `session_result`, `championship_drivers`, `championship_teams`, `laps`, `car_data`, `stints`, `position`, `pit`, `race_control`, and `weather`.
 
 Only sessions with an end time in the past and not marked cancelled are shown. The app is fixed to the approved 2026 season. Future races are excluded. Historical availability is controlled by OpenF1; the app does not invent data when a source is missing. Championship endpoints are beta and may be incomplete.
 
@@ -62,7 +64,7 @@ In the optional online source, responses are cached in browser storage for one h
 
 If OpenF1 returns a rate limit, wait a minute and retry. If it restricts access or is unavailable, try later. This app does not bypass restricted or paid endpoints. No live data, paid fallback, tracking, sign-in, or external font service is included. Your browser connects directly to OpenF1, which receives ordinary request metadata.
 
-Free third-party services can change availability or policies. Hosting costs can remain zero by using a static free tier within its limits; no hosting account has been created or deployment performed.
+Free third-party services can change availability or policies. Hosting costs can remain zero by using a static free tier within its limits; this project is connected to the user’s GitHub and Cloudflare deployment.
 
 ## Checks
 
@@ -70,7 +72,7 @@ Free third-party services can change availability or policies. Hosting costs can
 npm test
 ```
 
-Tests cover distance integration, signed acceleration, delta sign, identical-lap comparison, missing samples, sorting/deduplication, discrete braking interpolation, and lap-time formatting. Test inputs are mathematical fixtures, not displayed race data.
+Tests cover distance integration, signed acceleration, delta sign, identical-lap comparison, missing samples, sorting/deduplication, discrete braking interpolation, and lap-time formatting. Tests also cover archive loading, qualifying phases, race position sampling, retirements, event alignment, stint boundaries, and missing/filtered laps. Test inputs are mathematical fixtures, not displayed race data.
 
 ## Files and eventual hosting
 
@@ -78,4 +80,4 @@ Tests cover distance integration, signed acceleration, delta sign, identical-lap
 - `server.mjs` — local-only development server.
 - `tests/` — numerical regression tests.
 
-After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. Deployment remains pending. Rebuild any upload ZIP after changing app files or the saved archive.
+After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. New changes should be tested locally before the user pushes them to the connected GitHub deployment. Rebuild any upload ZIP after changing app files or the saved archive.
