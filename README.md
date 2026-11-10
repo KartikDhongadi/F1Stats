@@ -1,6 +1,6 @@
 # APEX — F1, understood
 
-A desktop-first dashboard for completed **2026** Formula 1 sessions. Real historical data comes from OpenF1. No accounts, API keys, subscriptions, npm packages, or paid services are required to run the app. Internet is required for the updater or the optional online data source. Saved data is read locally by default. See [DATA.md](DATA.md) for the saved-file workflow.
+A desktop-first dashboard for completed Formula 1 sessions from **2023 onward**, with **2026** selected initially. Real historical data comes from OpenF1. No accounts, API keys, subscriptions, npm packages, or paid services are required to run the app. Internet is required for the updater or the optional online data source. Saved data is read locally by default. See [DATA.md](DATA.md) for the saved-file workflow.
 
 ## Run on your MacBook with VS Code
 
@@ -27,9 +27,24 @@ If port 5173 is already in use, an existing preview may be running: open the URL
 
 ## Saved data
 
+Saved archives now use compressed session bundles. The browser reads both the original format and the new format. Metadata is grouped by session; telemetry is grouped into bundles of up to four driver chunks, with a 5 MiB target and 20 MiB compressed ceiling. The charts and weather controls are unchanged.
+
+To convert existing local seasons or rebuild bundles:
+
+```sh
+npm run bundle-data
+```
+
+Original individual files are retained in the Git-ignored `.archive-source/` directory, outside the deployed `public/` folder. Future `update-data` runs update those originals and publish bundles automatically. A fresh clone can reconstruct originals from the bundles. See [DATA.md](DATA.md) for migration, size limits and rollback details.
+
+
 Run `npm run update-data` to save the latest completed weekend. Then select **Saved files** and click **Reload data**. Qualifying, races, sprint qualifying and sprints are included; practice is excluded. Full-season and correction options are documented in [DATA.md](DATA.md).
 
 ## Try it
+
+- **Choose a race weekend:** the opening selector shows large country/circuit cards, newest first. Each completed Grand Prix has a compact P1/P2/P3 podium from saved classifications when available. Use search or select a card, then use **Choose race** above the stats or the persistent **Choose race / season** button in the left sidebar to reopen the selector. Closing the grid with Close or Escape does not remove these buttons. Card previews always use saved files, even when analysis uses the optional online source; missing podiums are labelled.
+- **Session buttons:** switch directly between the available qualifying, race and sprint sessions. Switching from a race overview to qualifying opens its qualifying overview, and vice versa.
+- **Searchable driver choices:** click a driver in Explorer, Compare laps or the race lap inspector, then search by name, team, abbreviation or number. Driver A and B stay distinct. Use Tab/Enter to select and Escape to close a picker.
 
 - **Season overview:** select a completed Grand Prix; inspect results, driver standings, and constructor standings. Standings are as of that race, not necessarily the latest race.
 - **Race overview:** select a Grand Prix or sprint. Show all drivers or narrow the field; inspect positions with the race-lap slider, click lap-time points, and review tyre stints, pit visits, and race-control events. The lap inspector opens telemetry or pins a lap for comparison. Long laps can be included with **All lap times**.
@@ -57,7 +72,7 @@ Source and endpoint documentation: https://openf1.org/docs/
 
 Endpoints: `sessions`, `drivers`, `session_result`, `championship_drivers`, `championship_teams`, `laps`, `car_data`, `stints`, `position`, `pit`, `race_control`, and `weather`.
 
-Only sessions with an end time in the past and not marked cancelled are shown. The app is fixed to the approved 2026 season. Future races are excluded. Historical availability is controlled by OpenF1; the app does not invent data when a source is missing. Championship endpoints are beta and may be incomplete.
+Only sessions with an end time in the past and not marked cancelled are shown. Use the season selector above the stats or inside the race grid to switch years. Future races are excluded. Historical availability is controlled by OpenF1; the app does not invent data when a source is missing. Championship endpoints are beta and may be incomplete.
 
 - Car samples are approximately 3.7 Hz. Braking is on/off, not pressure.
 - Lap times are recorded provider values.
@@ -92,3 +107,23 @@ Tests cover distance integration, signed acceleration, delta sign, identical-lap
 - `tests/` — numerical regression tests.
 
 After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. New changes should be tested locally before the user pushes them to the connected GitHub deployment. Rebuild any upload ZIP after changing app files or the saved archive.
+
+Development preference: leave automated and browser testing to the user unless they explicitly request it. Provide commit/push commands when requested; do not execute them unless explicitly instructed to do so.
+
+## Previous seasons
+
+Choose a year above the stats or inside the race grid. The app loads that year’s archive and clears the previous season’s results, laps and weather. Season labels and race cards follow the selected year. The sidebar **Choose race / season** button remains available even when a season has no saved data.
+
+If the selected season has no saved archive, close the grid and choose **OpenF1 online** under Data source, or download that year locally. For example:
+
+```sh
+npm run update-data -- --year 2025 --all
+```
+
+For a smaller download of results, laps and context without car telemetry:
+
+```sh
+npm run update-data -- --year 2025 --all --metadata-only
+```
+
+Then select 2025 and **Saved files**, and use **Reload data**. Run the full command later to add telemetry. Push the year’s data folder together with the app when you want it available on the hosted website. No older archives are downloaded automatically. The updater still defaults to 2026 when `--year` is omitted. Historical endpoint coverage can vary by season; missing records remain unavailable. Race-card podium previews use saved files, including in online mode.

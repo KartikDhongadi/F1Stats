@@ -1,97 +1,106 @@
-# Saved data workflow
+# Saved data and compact bundles
 
-The app defaults to **Saved files**. In this mode the browser reads JSON from this website and makes no OpenF1 API calls. The optional **OpenF1 online** source retains the previous workflow and its browser cache. Practice is excluded in both modes.
+The app defaults to **Saved files**, reading its own static assets without OpenF1 API requests. Qualifying, races, sprint qualifying and sprints are included; practice and cancelled/future sessions are excluded. The optional **OpenF1 online** mode remains available.
 
 ## Download / update
 
-Run in the F1Stats folder in VS Code:
+Run from the F1Stats folder:
 
 ```sh
+# Latest completed eligible weekend in 2026:
 npm run update-data
-```
 
-This downloads the latest weekend with a completed eligible session. It includes qualifying, the Grand Prix, sprint qualifying (including the provider's Sprint Shootout alias), and the sprint race when available. Sessions must have ended; cancelled sessions and practice are excluded. On Saturday, the weekend may contain only sprint/qualifying sessions; championship standings become available after the Grand Prix.
-
-Other options:
-
-```sh
-# All completed eligible 2026 sessions (can be a large, lengthy download):
+# Entire completed 2026 season:
 npm run update-data -- --all
 
-# One weekend by OpenF1 meeting_key:
-npm run update-data -- --meeting 1298
+# A previous season:
+npm run update-data -- --year 2025 --all
 
-# Fetch corrections for the selected weekend, replacing saved data:
-npm run update-data -- --meeting 1298 --refresh
+# One weekend, optionally fetching corrections:
+npm run update-data -- --year 2026 --meeting 1298 --refresh
 
-# Smaller timing/results/context download, without car telemetry:
-npm run update-data -- --all --metadata-only
+# Results, laps and context without downloading car telemetry:
+npm run update-data -- --year 2025 --all --metadata-only
 ```
 
-Run the same command again to resume. Existing nonempty files are checksum-verified and skipped. Missing/corrupt files and empty provider results are retried. `--refresh` explicitly re-fetches nonempty files to pick up official corrections. After downloading, use **Reload data** in the app. That button only reloads the archive; it does not download from OpenF1 when Saved files is selected.
+The updater now saves individual source files in `.archive-source/YEAR/`, then publishes compressed bundles to `public/data/YEAR/` after a successful download run. `--metadata-only` skips telemetry downloads; it does not delete telemetry already saved locally. Existing nonempty source files are checksum-verified and skipped. Missing, corrupt and empty records are retried. `--refresh` fetches corrections. Requests are serial, paced and retried with backoff; restricted access stops the update without a paid fallback.
 
-Press Control+C once to stop after the current request. A lock prevents concurrent updates. After a process crash, verify that no updater is running before removing `public/data/2026/.update.lock`.
+After updating, select the season in the app and click **Reload data**. This button reloads files; it does not run the downloader. The updater defaults to 2026; use `--year` explicitly for other seasons.
 
-## Storage format
+## Convert or rebuild existing archives
+
+```sh
+# All locally available seasons:
+npm run bundle-data
+
+# One season:
+npm run bundle-data -- --year 2025
+```
+
+This operation requires no OpenF1 requests. On the first conversion, the original manifest and every referenced original file are copied to `.archive-source/YEAR/` and checked against their recorded checksums. These local originals are ignored by Git and sit outside the deployed `public/` directory. Do not delete them while reviewing the migration.
+
+The converter writes bundles first, atomically switches the public manifest, then removes superseded public source files and obsolete bundles. The local originals remain. A failed conversion before the manifest switch leaves the prior public manifest intact; rerun the command after addressing the error. Do not commit/deploy while conversion is running. If interrupted after the switch, rerunning completes cleanup of obsolete bundles and superseded original files.
+
+An update and a bundle operation share `public/data/YEAR/.update.lock`; do not run both for the same year. After a crash, confirm the process is no longer running before removing a leftover lock. An interrupted download retains source progress but does not publish partial changes; rerun the update to finish and publish.
+
+A fresh Git clone containing only version-2 bundles can reconstruct its local source archive from those bundles, checking checksums and record counts, before continuing normal updates. No full-season re-download is needed for that reconstruction.
+
+## Deployment format
 
 ```
 public/data/2026/
   manifest.json
-  11400/
-    drivers.json
-    laps.json
-    session_result.json
-    stints.json
-    race_control.json
-    weather.json
-    car_data/
-      1.json.gz
-      3.json.gz
+  11404/
+    bundles/
+      metadata-<content-hash>.json.gz
+      telemetry-<content-hash>.json.gz
       ...
 ```
 
-A session's directory is named by its OpenF1 session key; driver telemetry filenames use driver numbers. Grands Prix and sprints also contain `position.json` and `pit.json`. Grand Prix sessions additionally contain `championship_drivers.json` and `championship_teams.json`.
+The season manifest has `version: 2` and `format: "apex-archive-v2"`. Logical keys, such as `11404/weather` or `11404/car_data/1`, map to ordered `chunks`. Each chunk identifies its bundle file, dataset member, SHA-256, compressed size, uncompressed size, and optional telemetry time bounds. The data source update timestamp is preserved separately from the bundling timestamp.
 
-Metadata is ordinary JSON arrays. Telemetry uses a losslessly gzip-compressed JSON table (`.json.gz`), decoded with the browser’s built-in decompressor:
+Each gzip file contains `{ "format": "apex-bundle-v1", "datasets": { ... } }`. Metadata members retain their original arrays. Car telemetry retains the lossless `apex-car-v1` column table with date, speed, throttle, brake, gear, RPM and DRS. There is no rounding, resampling or discarded channel. Driver/session IDs remain in the logical keys.
 
-```json
-{"format":"apex-car-v1","columns":["date","speed","throttle","brake","n_gear","rpm","drs"],"rows":[["2026-01-01T00:00:00Z",100,0,100,2,6000,null]]}
-```
+- Metadata is grouped by session, normally in one file. Large datasets can split into ordered chunks.
+- Telemetry is grouped by session, with at most four driver chunks per bundle. Most drivers occupy a single chunk.
+- Target compressed size: **5 MiB**. Hard compressed ceiling: **20 MiB**, below Cloudflare's published 25 MiB asset limit.
+- Uncompressed JSON is capped at **32 MiB per bundle** to bound decoding work. Large members split recursively by row count; a single oversized record stops the build with an error.
+- Splitting preserves record order. Telemetry time bounds let the browser skip chunks outside the requested lap; the loader returns only the requested driver's samples.
+- A bundle is fetched only when a member is requested. Concurrent requests for that bundle share a download. The browser retains up to four decoded files with a 64 MiB uncompressed-size cache budget. JavaScript object overhead and in-flight requests add memory beyond that budget.
 
-To inspect a telemetry file on your Mac, run `gzip -dc public/data/2026/11400/car_data/1.json.gz`. The example above is illustrative. Real files retain every returned sample and its precision, including null values; there is no downsampling. Session and driver IDs are encoded in the path rather than repeated thousands of times. `data-store.js` converts rows back into objects before analysis. One driver file is reused when selecting other laps, and up to twelve files are retained in memory.
+Filenames depend on content, so unchanged bundles keep their URLs. Manifests written by the updated bundler also record source checksums: subsequent builds reuse a session’s bundles when all its source assets are unchanged and the published bundle checksums still match. A correction changes its affected bundle; season-specific grouping prevents an update from rebuilding every year's data. Old tabs may need **Reload data** after deployment if they reference a retired bundle. New endpoints can be added as dataset members without changing the charts. The browser supports both version-1 individual files and version-2 bundles during migration.
 
-The manifest records each file's row count, byte size, SHA-256 checksum and download time. Its overall timestamp means the last archive update, not that every saved file was refreshed at that time. Updates save files atomically and checkpoint the manifest. During interrupted downloads, metadata may be available before all drivers' telemetry; missing telemetry is reported explicitly, with no automatic API fallback.
+## Local originals and rollback
 
-## What is downloaded
+`.archive-source/YEAR/manifest.json` remains version 1 and references the original individual JSON/gzip files. Future updates modify this working source archive, so copy it separately before applying corrections if you need an immutable snapshot.
 
-Drivers, full-session sampled car data, all available laps and sectors, session classifications, tyre stints, weather, race-control messages, and Grand Prix championship standings. Position updates and pit-lane visits are included for races and sprints. Location, team-radio audio, interval streams, and practice data are excluded. Qualifying and race overviews use the saved timing and context records; weather appears as a compact conditions summary beside the existing statistics.
+To temporarily return a season to the original format, stop updates, move its bundled `public/data/YEAR/` folder outside `public/`, and copy `.archive-source/YEAR/` into its place. Both formats are readable by the app. Keep the bundles until you have finished reviewing the rollback.
 
-The updater spaces requests by at least 2.2 seconds, retries temporary failures with backoff, and stops on restricted access. No paid endpoints, API keys, or subscriptions are used. Availability remains subject to OpenF1's free service. Source: https://openf1.org/docs/
+## GitHub and hosting
 
-For a background full-season run started from Codex, progress is recorded in `data-update.log`. View it with `tail -f data-update.log`; Control+C exits that log viewer without stopping the downloader. Do not start a second updater while that run is active.
+Only `public/` is deployed. Keep `.archive-source/` outside Git. When committing the migration, include the new bundles, changed manifests, deleted old public files, application loader and updated scripts together. `.gitignore` does not remove previously tracked files from Git history; earlier commits still contain the old archive. History rewriting is not part of this change.
 
-## Hosting and GitHub
+Cloudflare Workers Free currently permits **20,000 assets per version** and **25 MiB per asset**. Direct static-asset requests are free and asset storage has no additional charge; Worker code requests have separate limits. Sources: https://developers.cloudflare.com/workers/platform/limits/ and https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/
 
-Cloudflare must receive `public/data/` together with the app. A browser still downloads files from your site, but repeated visitors no longer query OpenF1. Your local archive is not automatically copied online: deploy or commit/push it with the app.
+Bundling reduces deployed file counts and metadata bytes. Keeping originals locally means your Mac temporarily uses more disk space. Visitors fetch individual needed bundles, not a complete season. The obsolete `apex-cloudflare.zip` must not be used for deployment.
 
-Before adding the **whole season** to Git, inspect the size printed by the updater. Full telemetry can be substantial. Start with selected weekends and review a full-season storage strategy before committing a large archive. The old `apex-cloudflare.zip` predates this change and must not be used for the updated site.
+## Timing and weather interpretation
 
-The UI and downloader are fixed to 2026 by default. The updater's `--year` option can create another archive, but changing the displayed season requires updating the app as well.
+Race positions share an approximate race-lap clock based on earliest observed crossings, carrying only past position observations forward. Retirements end at the last known completed-lap time. Lap times, driver telemetry and tyre strategy use each driver's own laps. Race-event lap labels are approximate; tyre changes are not automatically pit stops. Long laps remain available via the pace ceiling control.
 
-## Race overview alignment
+Weather follows the latest observation at or before the selected time. Readings older than 180 seconds are marked stale and withheld. Selected driver laps use their actual start; the race cursor uses the common approximate clock; season results use the labelled scheduled start. Wind is converted to km/h. A rainfall indicator does not establish track wetness.
 
-Positions use a common approximate race-lap clock: the earliest recorded completion or next-lap start for each lap. Only position observations at or before that instant are used. Missing crossings break lines, and retirements end at the last known completed-lap time. These are running positions, not the final classification or an overtaking count.
+## Verification preference
 
-Lap times and tyre strategy use each driver’s own lap number. For lapped drivers these differ from the leader’s clock. Event markers therefore appear only on the position chart. Events outside the actual recorded racing window are excluded; their race-lap labels are approximate.
+The conversion performs required integrity and file-size checks as part of writing archives. Application tests and browser checks are left to the user unless explicitly requested. No commit, push or deployment is performed by the conversion commands.
 
-Tyre stints include their ending lap. Missing ends are inferred from the next stint or recorded completed-lap count and labelled. Pit diamonds come from pit-lane records, not tyre changes; stationary stop and total pit-lane durations are shown separately. The default 180-second pace ceiling is a display filter only. Select **All lap times** to include long laps and stoppages.
+## Initial conversion result
 
-Existing archives can add the race overview records without downloading telemetry again:
+The 2025 and 2026 archives were converted locally without downloading new data:
 
-```sh
-npm run update-data -- --all --metadata-only
-```
+| Season | Published files (including manifest) | Published size | Largest bundle |
+| --- | ---: | ---: | ---: |
+| 2025 | 361 | 184.32 MiB | 1.12 MiB |
+| 2026 | 365 | 173.25 MiB | 1.35 MiB |
 
-## Weather alignment
-
-Weather uses the latest observation at or before the selected timestamp, never a future reading. The age is displayed; observations older than 180 seconds are marked stale and not presented as current conditions. Values are not interpolated or filled from other records. Lap inspectors use the driver’s actual lap start; the running-order cursor uses the existing approximate race-lap clock. Season results use the labelled scheduled session start. Wind is converted from provider m/s to km/h; pressure remains mbar. Source field definitions: https://openf1.org/docs/#weather
+Combined: 726 archive files (previously 3,217 referenced files), about 77% fewer, and 357.57 MiB including manifests. The originals are retained in `.archive-source/`; ignored macOS metadata files are not part of these counts. Source checksums are indexed for incremental session reuse. These are conversion output statistics, not a claim that application or browser tests have been run.

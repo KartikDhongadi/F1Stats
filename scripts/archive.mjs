@@ -20,7 +20,8 @@ export async function saveAsset(root, manifest, endpoint, params, rows) {
   const value = endpoint === 'car_data' ? packCarData(rows) : rows;
   const encoding = endpoint === 'car_data' ? 'gzip' : 'json';
   const bytes = encoding === 'gzip' ? gzipSync(JSON.stringify(value), {level:9}) : Buffer.from(JSON.stringify(value));
-  if (bytes.length > 24 * 1024 * 1024) throw Error(`Asset ${key} exceeds the static hosting file size target.`);
+  // Individual files are local working sources. Deployment size limits are
+  // enforced by the bundler, which can split large datasets without data loss.
   const file = path.join(root, key + (encoding === 'gzip' ? '.json.gz' : '.json'));
   await mkdir(path.dirname(file), {recursive:true});
   await writeFile(file+'.tmp', bytes);

@@ -6,7 +6,8 @@
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "test": "node --test",
-    "update-data": "node scripts/update-data.mjs"
+    "update-data": "node scripts/update-data.mjs",
+    "bundle-data": "node scripts/bundle-data.mjs"
   },
   "engines": {
     "node": ">=20"

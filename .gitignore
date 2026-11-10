@@ -10,3 +10,17 @@ preview.png
 *.log
 public/data/**/*.tmp
 public/data/**/.update.lock
+
+# Local tooling caches and generated reports (not application data)
+.wrangler/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+playwright-report/
+test-results/
+
+# Lossless source archives retained locally for rebundling and updates
+.archive-source/

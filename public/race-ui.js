@@ -1,3 +1,4 @@
+import {createDriverPicker} from './selectors.js';
 import {isRace, raceModel, pacePoints, linePath} from './race.js';
 import {lapTime} from './telemetry.js';
 const esc=value=>String(value??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -6,6 +7,7 @@ const palettes=['#c6f46b','#79bcff','#ffa17a','#b7a0ff','#70d6bf','#ed8bd0'];
 const patterns=['','7 4','2 3','10 3 2 3'];
 function timeText(seconds){return typeof seconds==='number'&&Number.isFinite(seconds)?seconds.toFixed(3)+' s':'Unavailable';}
 export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
+  let detailPicker;
   let model,visible=new Set(),selected,pinned,inspectLap=1,ceiling=180,eventFilter='key',observer,colors=new Map(),dashes=new Map(),warnings=[];
   const $=selector=>root.querySelector(selector);
   const rowFor=id=>model.rows.find(r=>r.driver.driver_number===Number(id));
@@ -87,6 +89,7 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
     selected=candidate?.key;if(candidate)select.value=selected;
   }
   function renderDetail(){
+    detailPicker?.sync();
     const box=$('.race-detail-content'),lap=findLap(selected);
     if(!lap){onWeather({time:NaN,label:'No lap selected'});box.innerHTML=noData('This driver has no recorded laps. Choose another driver.');return;}
     onWeather({time:lap.start,label:`${name(lap.driver_number)} · Lap ${lap.lap_number} start`});
@@ -104,7 +107,7 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
   function renderCharts(){if(!model||!$('.race-position-chart'))return;renderPositions();renderPace();}
   return {
     async load(session){
-      observer?.disconnect();model=null;selected=null;pinned=null;visible=new Set();inspectLap=1;ceiling=180;eventFilter='key';warnings=[];
+      observer?.disconnect();detailPicker?.destroy();detailPicker=null;model=null;selected=null;pinned=null;visible=new Set();inspectLap=1;ceiling=180;eventFilter='key';warnings=[];
       if(!isRace(session)){root.innerHTML=noData('Choose a completed Grand Prix or sprint. This weekend has no saved race session yet.');return;}
       root.innerHTML='<div class="empty"><h2>Reading the race…</h2><p>Loading lap timings, positions, tyres and race-control records.</p></div>';
       const params={session_key:session.session_key};
@@ -124,6 +127,7 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
       $('#race-detail-driver').onchange=e=>{fillLapOptions(Number(e.target.value));renderDetail();};
       $('#race-detail-lap').onchange=e=>{selected=e.target.value;renderDetail();};
       $('#race-event-filter').onchange=e=>{eventFilter=e.target.value;renderEvents();};
+      detailPicker=createDriverPicker($('#race-detail-driver'),()=>model.rows.map(r=>r.driver),'Choose a driver to inspect');
       fillLapOptions(model.rows[0].driver.driver_number);renderDetail();renderStrategy();renderEvents();renderCharts();readPositions(inspectLap);
       observer=new ResizeObserver(()=>renderCharts());observer.observe($('.race-position-panel'));
     }

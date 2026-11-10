@@ -1,6 +1,7 @@
 import {readFile, mkdir, open, unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {prepareSource,publishBundles} from './bundles.mjs';
 import {isRace} from '../public/race.js';
 import {eligibleSessions, assetKey} from '../public/data-store.js';
 import {atomicJson, validAsset, saveAsset, selectSessions} from './archive.mjs';
@@ -17,9 +18,12 @@ if (args.includes('--help')) {
 if (args.includes('--all') && args.includes('--meeting')) throw Error('Use --all or --meeting, not both.');
 const value = flag => args.includes(flag) ? Number(args[args.indexOf(flag)+1]) : undefined;
 const year = value('--year') ?? 2026;
-const root = fileURLToPath(new URL(`../public/data/${year}/`, import.meta.url));
+const base=fileURLToPath(new URL('../',import.meta.url));
+const publicRoot=path.join(base,'public/data',String(year));
+const root=path.join(base,'.archive-source',String(year));
 const manifestPath = path.join(root, 'manifest.json');
-const lockPath = path.join(root, '.update.lock');
+const lockPath = path.join(publicRoot, '.update.lock');
+await mkdir(publicRoot,{recursive:true});
 await mkdir(root, {recursive:true});
 let lock;
 try {lock = await open(lockPath, 'wx');} catch {throw Error(`Another update may be running. If a previous update crashed, remove ${lockPath} before retrying.`);}
@@ -55,6 +59,7 @@ async function request(endpoint, params) {
   }
 }
 try {
+  await prepareSource(base,year);
   let manifest;
   try {manifest = JSON.parse(await readFile(manifestPath, 'utf8'));} catch (e) {if(e.code!=='ENOENT') throw e;}
   manifest ??= {version:1, year, source:'https://openf1.org/docs/', sessions:[], assets:{}};
@@ -97,6 +102,7 @@ try {
   }
   const assets=Object.values(manifest.assets);
   console.log(`\nArchive ready: ${manifest.sessions.length} sessions, ${assets.length} files, ${(assets.reduce((n,a)=>n+a.bytes,0)/1024/1024).toFixed(1)} MiB.`);
+  console.log('Bundled deployment:',await publishBundles(base,year));
   console.log('Reload saved data in APEX. Commit public/data with the application when ready to deploy.');
 } catch(error) {
   console.error(error.message);
