@@ -1,3 +1,4 @@
+import {lapChoices,lapLabel,createLapTools} from './lap-selection.js';
 import {createDriverPicker} from './selectors.js';
 import {isRace, raceModel, pacePoints, linePath} from './race.js';
 import {lapTime} from './telemetry.js';
@@ -7,7 +8,7 @@ const palettes=['#c6f46b','#79bcff','#ffa17a','#b7a0ff','#70d6bf','#ed8bd0'];
 const patterns=['','7 4','2 3','10 3 2 3'];
 function timeText(seconds){return typeof seconds==='number'&&Number.isFinite(seconds)?seconds.toFixed(3)+' s':'Unavailable';}
 export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
-  let detailPicker;
+  let detailPicker,detailLapTools;
   let model,visible=new Set(),selected,pinned,inspectLap=1,ceiling=180,eventFilter='key',observer,colors=new Map(),dashes=new Map(),warnings=[];
   const $=selector=>root.querySelector(selector);
   const rowFor=id=>model.rows.find(r=>r.driver.driver_number===Number(id));
@@ -84,12 +85,12 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
   }
   function fillLapOptions(driver,lapNumber){
     const row=rowFor(driver),select=$('#race-detail-lap');
-    select.innerHTML=(row?.laps||[]).map(l=>`<option value="${l.key}">Lap ${l.lap_number} · ${lapTime(l.lap_duration)}</option>`).join('');
+    select.innerHTML=(row?.laps||[]).map(l=>`<option value="${l.key}">${esc(lapLabel(l))}</option>`).join('');
     const candidate=row?.laps.find(l=>l.lap_number===Number(lapNumber))||row?.laps[0];
     selected=candidate?.key;if(candidate)select.value=selected;
   }
   function renderDetail(){
-    detailPicker?.sync();
+    detailPicker?.sync();detailLapTools?.sync();
     const box=$('.race-detail-content'),lap=findLap(selected);
     if(!lap){onWeather({time:NaN,label:'No lap selected'});box.innerHTML=noData('This driver has no recorded laps. Choose another driver.');return;}
     onWeather({time:lap.start,label:`${name(lap.driver_number)} · Lap ${lap.lap_number} start`});
@@ -107,14 +108,14 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
   function renderCharts(){if(!model||!$('.race-position-chart'))return;renderPositions();renderPace();}
   return {
     async load(session){
-      observer?.disconnect();detailPicker?.destroy();detailPicker=null;model=null;selected=null;pinned=null;visible=new Set();inspectLap=1;ceiling=180;eventFilter='key';warnings=[];
+      observer?.disconnect();detailLapTools?.destroy();detailLapTools=null;detailPicker?.destroy();detailPicker=null;model=null;selected=null;pinned=null;visible=new Set();inspectLap=1;ceiling=180;eventFilter='key';warnings=[];
       if(!isRace(session)){root.innerHTML=noData('Choose a completed Grand Prix or sprint. This weekend has no saved race session yet.');return;}
       root.innerHTML='<div class="empty"><h2>Reading the race…</h2><p>Loading lap timings, positions, tyres and race-control records.</p></div>';
       const params={session_key:session.session_key};
       const drivers=await query('drivers',params),laps=await query('laps',params),results=await query('session_result',params);
       async function optional(endpoint,label){try{return await query(endpoint,params);}catch{warnings.push(`${label} unavailable. Saved files may need updating.`);return [];}}
       const positions=await optional('position','Position history'),stints=await optional('stints','Tyre stints'),pits=await optional('pit','Pit-lane records'),messages=await optional('race_control','Race-control messages');
-      model=raceModel(session,drivers,laps,results,positions,stints,pits,messages);
+      model=raceModel(session,drivers,lapChoices(laps,stints,pits,messages),results,positions,stints,pits,messages);
       if(!model.rows.length||!model.maxLap){root.innerHTML=noData('No race laps are available in this data source yet.');return;}
       const teams=new Map();colors=new Map();dashes=new Map();
       model.rows.forEach((r,i)=>{const team=r.driver.team_name||r.driver.driver_number,occurrence=teams.get(team)||0;teams.set(team,occurrence+1);colors.set(r.driver.driver_number,/^[\da-f]{6}$/i.test(r.driver.team_colour||'')?'#'+r.driver.team_colour:palettes[i%palettes.length]);dashes.set(r.driver.driver_number,patterns[occurrence%patterns.length]);visible.add(r.driver.driver_number);});
@@ -128,6 +129,7 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
       $('#race-detail-lap').onchange=e=>{selected=e.target.value;renderDetail();};
       $('#race-event-filter').onchange=e=>{eventFilter=e.target.value;renderEvents();};
       detailPicker=createDriverPicker($('#race-detail-driver'),()=>model.rows.map(r=>r.driver),'Choose a driver to inspect');
+      detailLapTools=createLapTools($('#race-detail-lap'),{getLaps:()=>rowFor($('#race-detail-driver').value)?.laps||[],value:lap=>lap.key});
       fillLapOptions(model.rows[0].driver.driver_number);renderDetail();renderStrategy();renderEvents();renderCharts();readPositions(inspectLap);
       observer=new ResizeObserver(()=>renderCharts());observer.observe($('.race-position-panel'));
     }

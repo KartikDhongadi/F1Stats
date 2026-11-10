@@ -49,7 +49,7 @@ Run `npm run update-data` to save the latest completed weekend. Then select **Sa
 - **Season overview:** select a completed Grand Prix; inspect results, driver standings, and constructor standings. Standings are as of that race, not necessarily the latest race.
 - **Race overview:** select a Grand Prix or sprint. Show all drivers or narrow the field; inspect positions with the race-lap slider, click lap-time points, and review tyre stints, pit visits, and race-control events. The lap inspector opens telemetry or pins a lap for comparison. Long laps can be included with **All lap times**.
 - **Qualifying overview:** explore every driver’s attempts, Q/SQ phases, sector details and best times, then open a lap or comparison.
-- **Driver explorer:** pick a session, driver, and lap, then click **Load telemetry**. The fastest available non-pit-out lap is selected initially.
+- **Driver explorer:** pick a session, driver, and lap, then click **Load telemetry**. The fastest eligible clean lap is selected initially; if none exists, the first available timed lap is selected and the clean-lap shortcut is disabled.
 - **Compare laps:** select two drivers/laps from the same session and load telemetry. A uses a solid lime trace and B uses a dashed blue trace.
 - Hover over a chart to inspect a shared distance cursor. Keyboard users can focus a chart and use arrow keys, Home, or End.
 - Enable **Advanced view** for estimated acceleration, RPM, gear, and DRS provider codes.
@@ -127,3 +127,13 @@ npm run update-data -- --year 2025 --all --metadata-only
 ```
 
 Then select 2025 and **Saved files**, and use **Reload data**. Run the full command later to add telemetry. Push the year’s data folder together with the app when you want it available on the hosted website. No older archives are downloaded automatically. The updater still defaults to 2026 when `--year` is omitted. Historical endpoint coverage can vary by season; missing records remain unavailable. Race-card podium previews use saved files, including in online mode.
+
+## Fast race cards and lap shortcuts
+
+Race-card podiums now come from one small `season-summary.json` per season, indexed by checksum in the manifest. The updater/bundler regenerates it automatically. Opening the grid no longer fetches every weekend’s metadata bundles for podium previews. An older archive without a summary still shows selectable race cards, with podiums unavailable until rebuilt.
+
+Explorer, Compare laps and the race lap inspector now include **Previous**, **Next** and **Fastest clean lap** controls. Previous/Next follow available laps and skip missing lap numbers. Options show compound, pit-out, pit-in (including explicitly labelled inference), and recorded deletion status. Tyre data can remain unknown when records are missing.
+
+“Clean” is a selection rule, not a guarantee of ideal conditions: the lap must have a positive duration and valid start timestamp, must not be recorded deleted, and must have no recorded pit visit or pit-out flag. A consecutive following pit-out lap also marks the preceding lap as inferred pit-in. Traffic, safety-car periods, fuel and missing records are not assessed. Reinstated laps are eligible again. If no eligible clean lap exists, the shortcut is disabled. Comparison A/B controls remain independent. In Explorer and Compare laps, selecting a lap or using Previous, Next or Fastest clean lap automatically loads the selected telemetry and updates weather. Comparison mode reloads both selected traces together. Controls are disabled while loading to prevent overlapping selections; Load telemetry remains available for initial loading after changing a driver/session, or to retry. Race-overview lap shortcuts continue to update the inline inspector; Explore telemetry opens the full charts.
+
+These upgrades were implemented without running application or browser tests, per the user's preference.

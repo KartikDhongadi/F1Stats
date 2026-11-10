@@ -65,6 +65,13 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
   return {
     reset(){generation++;manifestPromise=undefined;cache.clear();pending.clear();},
     manifest:getManifest,
+    async summary(){
+      const manifest=await getManifest();if(!manifest.summary)return null;
+      if(manifest.summary.file!=='season-summary.json')throw Error('Unsupported summary path.');
+      const value=await readAsset(manifest.summary.file,manifest.summary);
+      if(value.format!=='apex-season-summary-v1'||value.year!==year||!Array.isArray(value.weekends))throw Error('Invalid season summary.');
+      return value;
+    },
     async query(endpoint,params={}){
       const manifest=await getManifest();
       if(endpoint==='sessions')return manifest.sessions;

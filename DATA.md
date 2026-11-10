@@ -50,6 +50,7 @@ A fresh Git clone containing only version-2 bundles can reconstruct its local so
 ```
 public/data/2026/
   manifest.json
+  season-summary.json
   11404/
     bundles/
       metadata-<content-hash>.json.gz
@@ -104,3 +105,9 @@ The 2025 and 2026 archives were converted locally without downloading new data:
 | 2026 | 365 | 173.25 MiB | 1.35 MiB |
 
 Combined: 726 archive files (previously 3,217 referenced files), about 77% fewer, and 357.57 MiB including manifests. The originals are retained in `.archive-source/`; ignored macOS metadata files are not part of these counts. Source checksums are indexed for incremental session reuse. These are conversion output statistics, not a claim that application or browser tests have been run.
+
+## Season-summary index
+
+The manifest's optional `summary` entry points to `season-summary.json` with its SHA-256 and byte size. Its `apex-season-summary-v1` payload contains the year, source timestamp, weekend names/dates, available session identifiers and saved Grand Prix podiums. The race selector requests this one file instead of all sessions' metadata bundles. The current initial summaries are 13,421 bytes for 2025 and 11,467 bytes for 2026. Each summary adds one small deployed asset.
+
+`publishBundles` regenerates the summary before switching the manifest, including when all session bundles are reused. A failure to read a summary's source dataset stops publication instead of silently publishing partial podiums. Archives lacking the summary remain usable; no automatic all-session fetch fallback is performed. Run `npm run bundle-data` to generate summaries for older local archives. No telemetry is duplicated in the summary.

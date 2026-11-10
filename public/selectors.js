@@ -2,7 +2,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const normalize=value=>String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const colour=driver=>/^[\da-f]{6}$/i.test(driver?.team_colour||'')?'#'+driver.team_colour:'#9ba6b7';
 const date=value=>new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
-export function createRacePicker({query,onSelect,onSeasonChange,years}){
+export function createRacePicker({loadSummary,onSelect,onSeasonChange,years}){
  const dialog=document.createElement('dialog');dialog.className='selection-dialog race-selection';dialog.setAttribute('aria-labelledby','race-picker-title');
  dialog.innerHTML='<div class="selection-heading"><div><span class="eyebrow" id="picker-season-heading">CHOOSE A SEASON</span><h2 id="race-picker-title">Choose your race weekend.</h2><p>Open a weekend to explore its results, laps and strategy.</p></div><button type="button" class="secondary" data-close aria-label="Close race selector">Close ×</button></div><label class="picker-year-label">SEASON<select id="picker-year" aria-label="Race grid season"></select></label><label class="selection-search">FIND A RACE<input type="search" placeholder="Search country or circuit…" aria-label="Search race weekends"></label><p class="selection-note">Grand Prix podiums · saved results · dates in UTC</p><div class="race-card-grid"></div>';
  document.body.append(dialog);
@@ -21,10 +21,10 @@ export function createRacePicker({query,onSelect,onSeasonChange,years}){
  return {
   reset(year,message='Loading this season…'){weekends=[];allSessions=[];selected=null;podiums.clear();search.value='';emptyMessage=message;seasonSelect.value=String(year);dialog.querySelector('#picker-season-heading').textContent=`THE ${year} SEASON`;render();},
   async load(races,sessions,current){weekends=[...races].sort((a,b)=>Date.parse(b.date_start)-Date.parse(a.date_start));allSessions=sessions;selected=current;podiums=new Map();
-   // Only small saved classification/driver files; never fan out online API requests.
-   await Promise.all(weekends.map(async r=>{const gp=sessions.find(s=>s.meeting_key===r.meeting_key&&s.session_name==='Race');if(!gp)return;
-    try{const [results,drivers]=await Promise.all([query('session_result',{session_key:gp.session_key}),query('drivers',{session_key:gp.session_key})]);podiums.set(r.meeting_key,results.filter(p=>p.position>=1&&p.position<=3&&!p.dsq&&!p.dns).map(p=>({position:p.position,name:drivers.find(d=>d.driver_number===p.driver_number)?.full_name||`Driver ${p.driver_number}`})));}catch{podiums.set(r.meeting_key,[]);}
-   }));render();
+   render();
+   try{const summary=await loadSummary();for(const weekend of summary?.weekends||[])podiums.set(weekend.meeting_key,weekend.podium||[]);}catch{}
+   // Older archives still show selectable cards without downloading every session.
+   render();
   },
   open(current){selected=current;search.value='';render();if(!dialog.open)dialog.showModal();search.focus();}
  };

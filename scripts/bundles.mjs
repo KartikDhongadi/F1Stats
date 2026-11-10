@@ -2,6 +2,7 @@ import {mkdir,readFile,writeFile,rename,unlink,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {atomicJson,checksum,saveAsset} from './archive.mjs';
+import {writeSeasonSummary} from './season-summary.mjs';
 import {unpackCarData} from '../public/data-store.js';
 const TARGET=5*1024*1024,HARD=20*1024*1024,RAW=32*1024*1024;
 const json=async file=>JSON.parse(await readFile(file,'utf8'));
@@ -108,6 +109,7 @@ export async function publishBundles(base,year){
   }
  }
  // Publish only after all bundles exist. The original files remain outside public/.
+ await writeSeasonSummary(dest,manifest);
  await atomicJson(path.join(dest,'manifest.json'),manifest);
  const keep=new Set(Object.values(manifest.assets).flatMap(a=>a.chunks.map(c=>c.file)));
  const legacyEntries=previous?.version===1?previous.assets:original.assets;
@@ -119,5 +121,5 @@ export async function publishBundles(base,year){
   let files;try{files=await readdir(dir);}catch(e){if(e.code==='ENOENT')continue;throw e;}
   for(const name of files){const file=`${session.name}/bundles/${name}`;if(name.endsWith('.json.gz')&&!keep.has(file))await unlink(path.join(dest,file));}
  }
- return {year,sessions:manifest.sessions.length,files:fileCount+1,MiB: +(totalBytes/1024/1024).toFixed(2),largestMiB:+(largest/1024/1024).toFixed(2)};
+ return {year,sessions:manifest.sessions.length,files:fileCount+2,MiB: +((totalBytes+manifest.summary.bytes)/1024/1024).toFixed(2),largestMiB:+(largest/1024/1024).toFixed(2)};
 }
