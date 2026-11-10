@@ -64,7 +64,7 @@ The manifest records each file's row count, byte size, SHA-256 checksum and down
 
 ## What is downloaded
 
-Drivers, full-session sampled car data, all available laps and sectors, session classifications, tyre stints, weather, race-control messages, and Grand Prix championship standings. Position updates and pit-lane visits are included for races and sprints. Location, team-radio audio, interval streams, and practice data are excluded. Qualifying and race overviews use the saved timing and context records; weather is stored but has no dedicated chart yet.
+Drivers, full-session sampled car data, all available laps and sectors, session classifications, tyre stints, weather, race-control messages, and Grand Prix championship standings. Position updates and pit-lane visits are included for races and sprints. Location, team-radio audio, interval streams, and practice data are excluded. Qualifying and race overviews use the saved timing and context records; weather appears as a compact conditions summary beside the existing statistics.
 
 The updater spaces requests by at least 2.2 seconds, retries temporary failures with backoff, and stops on restricted access. No paid endpoints, API keys, or subscriptions are used. Availability remains subject to OpenF1's free service. Source: https://openf1.org/docs/
 
@@ -91,3 +91,7 @@ Existing archives can add the race overview records without downloading telemetr
 ```sh
 npm run update-data -- --all --metadata-only
 ```
+
+## Weather alignment
+
+Weather uses the latest observation at or before the selected timestamp, never a future reading. The age is displayed; observations older than 180 seconds are marked stale and not presented as current conditions. Values are not interpolated or filled from other records. Lap inspectors use the driver’s actual lap start; the running-order cursor uses the existing approximate race-lap clock. Season results use the labelled scheduled session start. Wind is converted from provider m/s to km/h; pressure remains mbar. Source field definitions: https://openf1.org/docs/#weather

@@ -5,7 +5,7 @@ const tyreStyle={SOFT:['S','#f37e7e','#281113'],MEDIUM:['M','#efcf6f','#2b230f']
 const palettes=['#c6f46b','#79bcff','#ffa17a','#b7a0ff','#70d6bf','#ed8bd0'];
 const patterns=['','7 4','2 3','10 3 2 3'];
 function timeText(seconds){return typeof seconds==='number'&&Number.isFinite(seconds)?seconds.toFixed(3)+' s':'Unavailable';}
-export function createRaceView(root,{query,openLaps}) {
+export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
   let model,visible=new Set(),selected,pinned,inspectLap=1,ceiling=180,eventFilter='key',observer,colors=new Map(),dashes=new Map(),warnings=[];
   const $=selector=>root.querySelector(selector);
   const rowFor=id=>model.rows.find(r=>r.driver.driver_number===Number(id));
@@ -19,8 +19,9 @@ export function createRaceView(root,{query,openLaps}) {
   function axes(f,x,y,ticks,label,format){
     return ticks.map(value=>`<line x1="${f.left}" x2="${f.width-f.right}" y1="${y(value)}" y2="${y(value)}" stroke="#2a3441"/><text x="${f.left-10}" y="${y(value)+4}" text-anchor="end">${format(value)}</text>`).join('')+xTicks().map(lap=>`<text x="${x(lap)}" y="${f.height-22}" text-anchor="${lap===1?'start':lap===model.maxLap?'end':'middle'}">${lap}</text>`).join('')+`<text x="${f.left}" y="12">${label}</text>`;
   }
-  function readPositions(lap){
+  function readPositions(lap,notify=true){
     inspectLap=Math.max(1,Math.min(model.maxLap,Math.round(lap)));$('#race-progress').value=inspectLap;
+    if(notify)onWeather({time:model.clock.find(p=>p.lap===inspectLap)?.time,label:`Race lap ${inspectLap} · running order`});
     $('#race-progress-label').textContent=`Race lap ${inspectLap}`;
     const rows=series().map(r=>({row:r,position:r.positionPoints.find(p=>p.lap===inspectLap)?.position})).sort((a,b)=>(a.position??Infinity)-(b.position??Infinity));
     $('.race-position-readout').innerHTML=rows.length?rows.map(({row:r,position})=>`<span><i style="background:${colors.get(r.driver.driver_number)}"></i>${esc(r.driver.name_acronym||r.driver.full_name)} <b>${position==null?'—':'P'+position}</b></span>`).join(''):'No drivers selected.';
@@ -29,14 +30,14 @@ export function createRaceView(root,{query,openLaps}) {
   function renderPositions(){
     const box=$('.race-position-chart');if(!box)return;
     const rows=series(),points=rows.flatMap(r=>r.positionPoints).filter(p=>p.position!=null);
-    if(!points.length){box.innerHTML=noData(rows.length?'No position samples available for the selected drivers.':'Select drivers to display their positions.');readPositions(inspectLap);return;}
+    if(!points.length){box.innerHTML=noData(rows.length?'No position samples available for the selected drivers.':'Select drivers to display their positions.');readPositions(inspectLap,false);return;}
     const f=frame(box),x=xScale(f),maximum=Math.max(model.rows.length,...points.map(p=>p.position));
     const y=p=>f.top+(p-1)/Math.max(1,maximum-1)*(f.height-f.top-f.bottom);
     const ticks=[...new Set([1,...Array.from({length:Math.floor(maximum/5)},(_,i)=>(i+1)*5),maximum])];
     const critical=model.events.filter(e=>['Safety car','Virtual safety car','Red flag / suspension'].includes(e.type)&&e.raceLap!=null);
     box.innerHTML=`<svg viewBox="0 0 ${f.width} ${f.height}" width="${f.width}" height="${f.height}" role="img" aria-label="Driver positions at estimated leader lap crossings. Position one is at the top. Use the race lap slider to inspect values.">${axes(f,x,y,ticks,'Position',v=>'P'+v)}${critical.map(e=>`<line x1="${x(e.raceLap)}" x2="${x(e.raceLap)}" y1="${f.top}" y2="${f.height-f.bottom}" stroke="${e.type==='Red flag / suspension'?'#d28a80':'#b9a46d'}" stroke-dasharray="2 5" opacity=".5"><title>${esc(e.message)} · approximately race lap ${e.raceLap}</title></line>`).join('')}${rows.map(r=>`<path data-position-driver="${r.driver.driver_number}" d="${linePath(r.positionPoints,x,y,'position')}" fill="none" stroke="${colors.get(r.driver.driver_number)}" stroke-width="2" stroke-dasharray="${dashes.get(r.driver.driver_number)}"><title>${esc(r.driver.full_name)}</title></path>`).join('')}<line class="race-cursor" y1="${f.top}" y2="${f.height-f.bottom}" stroke="#e9edf4" opacity=".65"/></svg>`;
     box.querySelector('svg').onpointermove=event=>{const rect=event.currentTarget.getBoundingClientRect();const px=(event.clientX-rect.left)/rect.width*f.width;readPositions(1+(px-f.left)/(f.width-f.left-f.right)*Math.max(1,model.maxLap-1));};
-    readPositions(inspectLap);
+    readPositions(inspectLap,false);
   }
   function chooseLap(lap,scroll=false){
     if(!lap)return;selected=lap.key;
@@ -87,7 +88,8 @@ export function createRaceView(root,{query,openLaps}) {
   }
   function renderDetail(){
     const box=$('.race-detail-content'),lap=findLap(selected);
-    if(!lap){box.innerHTML=noData('This driver has no recorded laps. Choose another driver.');return;}
+    if(!lap){onWeather({time:NaN,label:'No lap selected'});box.innerHTML=noData('This driver has no recorded laps. Choose another driver.');return;}
+    onWeather({time:lap.start,label:`${name(lap.driver_number)} · Lap ${lap.lap_number} start`});
     const row=rowFor(lap.driver_number),tyre=row.stints.find(s=>lap.lap_number>=s.lap_start&&lap.lap_number<=s.end),canOpen=lap.lap_duration>0&&Number.isFinite(lap.start);
     box.innerHTML=`<div class="race-detail-summary"><strong>${lapTime(lap.lap_duration)}</strong><span>${esc(name(lap.driver_number))} · Lap ${lap.lap_number} · ${esc(tyre?.compound||'Tyre unknown')}${lap.is_pit_out_lap?' · Pit out':''}</span></div><div class="quali-sectors">${[1,2,3].map(i=>`<div><span>SECTOR ${i}</span><strong>${timeText(lap['duration_sector_'+i])}</strong></div>`).join('')}</div><div class="quali-actions"><button class="primary" data-race-action="explore" ${canOpen?'':'disabled data-unavailable'}>Explore telemetry ↗</button><button class="secondary" data-race-action="pin" ${canOpen?'':'disabled data-unavailable'}>Set as comparison A</button><button class="secondary" data-race-action="compare" ${canOpen&&pinned&&pinned!==selected?'':'disabled data-unavailable'}>Compare A with this lap ↗</button></div><p class="quali-pinned">${pinned?`Comparison A: ${esc(name(findLap(pinned).driver_number))} · Lap ${findLap(pinned).lap_number}`:'Choose A, then select another lap or driver for comparison.'}</p>`;
     box.querySelector('[data-race-action="explore"]').onclick=()=>{if(canOpen)openLaps([lap]);};
@@ -122,7 +124,7 @@ export function createRaceView(root,{query,openLaps}) {
       $('#race-detail-driver').onchange=e=>{fillLapOptions(Number(e.target.value));renderDetail();};
       $('#race-detail-lap').onchange=e=>{selected=e.target.value;renderDetail();};
       $('#race-event-filter').onchange=e=>{eventFilter=e.target.value;renderEvents();};
-      fillLapOptions(model.rows[0].driver.driver_number);renderDetail();renderStrategy();renderEvents();renderCharts();
+      fillLapOptions(model.rows[0].driver.driver_number);renderDetail();renderStrategy();renderEvents();renderCharts();readPositions(inspectLap);
       observer=new ResizeObserver(()=>renderCharts());observer.observe($('.race-position-panel'));
     }
   };

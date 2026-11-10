@@ -2,7 +2,7 @@ import {qualifyingModel, isQualifying} from './qualifying.js';
 import {lapTime} from './telemetry.js';
 const esc = value => String(value ?? '—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const seconds = value => typeof value === 'number' && value > 0 ? value.toFixed(3)+' s' : '—';
-export function createQualifyingView(root, {query, openLaps}) {
+export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}}) {
   let model, selected, pinned, phase='all', includeUntimed=false, observer;
   const findLap = key => model?.rows.flatMap(r=>r.attempts).find(l=>l.key===key);
   const driverName = number => model.rows.find(r=>r.driver.driver_number===number)?.driver.full_name || `Driver ${number}`;
@@ -10,7 +10,8 @@ export function createQualifyingView(root, {query, openLaps}) {
   function detail() {
     const lap=findLap(selected), box=root.querySelector('.quali-detail');
     if(!box)return;
-    if(!lap){box.innerHTML='<h3>Select any lap on the timeline</h3><p>Every session driver is listed, including drivers without a timed lap.</p>';return;}
+    if(!lap){onWeather({time:model.first,label:'Qualifying · session start'});box.innerHTML='<h3>Select any lap on the timeline</h3><p>Every session driver is listed, including drivers without a timed lap.</p>';return;}
+    onWeather({time:lap.start,label:`${driverName(lap.driver_number)} · Lap ${lap.lap_number} start`});
     box.innerHTML=`<div class="quali-detail-head"><div><span class="eyebrow">SELECTED ATTEMPT</span><h2>${esc(driverName(lap.driver_number))} · Lap ${lap.lap_number}</h2><p>${lap.phase?model.prefix+lap.phase:'Phase unconfirmed'} · ${lap.deleted?'Deleted':lap.is_pit_out_lap?'Pit-out lap':lap.best?'Official phase-best lap':lap.timed?'Timed lap':'No complete lap time'}</p></div><strong class="quali-time">${lapTime(lap.lap_duration)}</strong></div><div class="quali-sectors">${[1,2,3].map(i=>`<div><span>SECTOR ${i}</span><strong>${seconds(lap['duration_sector_'+i])}</strong></div>`).join('')}</div>${lap.deletionMessage?`<p class="quali-deletion">Race control: ${esc(lap.deletionMessage)}</p>`:''}<div class="quali-actions"><button class="primary" data-action="explore" ${!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Explore this lap ↗</button><button class="secondary" data-action="pin" ${!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Set as comparison A</button><button class="secondary" data-action="compare" ${!pinned||pinned===selected||!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Compare A with this lap ↗</button></div><p class="quali-pinned">${pinned?`Comparison A: ${esc(driverName(findLap(pinned).driver_number))} · Lap ${findLap(pinned).lap_number}. Select another lap, then compare.`:'Select a lap as A, then pick another driver’s lap to compare.'}</p>`;
     box.querySelector('[data-action="explore"]').onclick=()=>{if(lap.timed&&Number.isFinite(lap.start))openLaps([lap]);};
     box.querySelector('[data-action="pin"]').onclick=()=>{pinned=selected;detail();};

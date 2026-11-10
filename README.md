@@ -40,6 +40,17 @@ Run `npm run update-data` to save the latest completed weekend. Then select **Sa
 - Enable **Advanced view** for estimated acceleration, RPM, gear, and DRS provider codes.
 - Try a different race/session and check that the data updates before drawing conclusions.
 
+## Weather at a glance
+
+A compact **Track conditions** summary stays beside the active statistics on desktop. It shows track and air temperature, rain status, wind, humidity and pressure. In smaller windows it sits above the same statistics.
+
+- Race/sprint: follows the running-order lap cursor; selecting a lap, stint or pit marker shows the selected driver’s lap-start conditions.
+- Qualifying/sprint qualifying: follows the selected attempt’s start time.
+- Explorer/comparison: follows the chosen lap(s), with separate A/B summaries before and after telemetry loads.
+- Season results: explicitly shows conditions at the selected session’s scheduled start, not a whole-session average.
+
+Readings are timestamped in UTC with their age relative to the selection. Missing values remain unavailable; readings older than three minutes are marked stale and their values are withheld. The rain indicator does not measure track wetness. Saved mode reads existing files and makes no additional OpenF1 calls.
+
 ## Data and calculations
 
 Source and endpoint documentation: https://openf1.org/docs/
