@@ -110,6 +110,18 @@ export async function publishBundles(base,year){
  }
  // Publish only after all bundles exist. The original files remain outside public/.
  await writeSeasonSummary(dest,manifest);
+ // Small start-up index: the browser reads this instead of the full manifest, then fetches
+ // one session's asset list only when that session is opened. manifest.json stays complete.
+ const sessionAssets={},keepIndexes=new Set();let indexBytes=0;
+ for(const session of manifest.sessions){
+  const prefix=session.session_key+'/';
+  const assets=Object.fromEntries(Object.entries(manifest.assets).filter(([key])=>key.startsWith(prefix)).map(([key,asset])=>[key,{rows:asset.rows,chunks:asset.chunks.map(({file,member,sha256,rawBytes,from,to})=>({file,member,sha256,rawBytes,from,to}))}]));
+  if(!Object.keys(assets).length)continue;
+  const text=JSON.stringify({format:'apex-session-index-v1',year,session_key:session.session_key,assets}),sha256=checksum(text),file=`${session.session_key}/bundles/index-${sha256.slice(0,24)}.json`;
+  await mkdir(path.dirname(path.join(dest,file)),{recursive:true});await writeFile(path.join(dest,file)+'.tmp',text);await rename(path.join(dest,file)+'.tmp',path.join(dest,file));
+  sessionAssets[session.session_key]={file,sha256,bytes:Buffer.byteLength(text)};keepIndexes.add(file);indexBytes+=Buffer.byteLength(text);
+ }
+ const startIndex=await atomicJson(path.join(dest,'index.json'),{format:'apex-index-v1',year,updatedAt:manifest.updatedAt,bundledAt:manifest.bundledAt,sessions:manifest.sessions,summary:manifest.summary,sessionAssets});
  await atomicJson(path.join(dest,'manifest.json'),manifest);
  const keep=new Set(Object.values(manifest.assets).flatMap(a=>a.chunks.map(c=>c.file)));
  const legacyEntries=previous?.version===1?previous.assets:original.assets;
@@ -119,7 +131,7 @@ export async function publishBundles(base,year){
   if(!session.isDirectory()||!/^\d+$/.test(session.name))continue;
   const dir=path.join(dest,session.name,'bundles');
   let files;try{files=await readdir(dir);}catch(e){if(e.code==='ENOENT')continue;throw e;}
-  for(const name of files){const file=`${session.name}/bundles/${name}`;if(name.endsWith('.json.gz')&&!keep.has(file))await unlink(path.join(dest,file));}
+  for(const name of files){const file=`${session.name}/bundles/${name}`;if((name.endsWith('.json.gz')&&!keep.has(file))||(/^index-[a-f0-9]+\.json$/.test(name)&&!keepIndexes.has(file)))await unlink(path.join(dest,file));}
  }
- return {year,sessions:manifest.sessions.length,files:fileCount+2,MiB: +((totalBytes+manifest.summary.bytes)/1024/1024).toFixed(2),largestMiB:+(largest/1024/1024).toFixed(2)};
+ return {year,sessions:manifest.sessions.length,files:fileCount+3+keepIndexes.size,MiB: +((totalBytes+manifest.summary.bytes+indexBytes+startIndex.bytes)/1024/1024).toFixed(2),largestMiB:+(largest/1024/1024).toFixed(2)};
 }

@@ -18,14 +18,15 @@ test('archive reads local URLs only and reuses a driver file across lap windows'
  const params={session_key:12,driver_number:1,'date>':rows[1].date};
  assert.deepEqual(await client.query('car_data',params),[rows[1]]);
  assert.equal((await client.query('car_data',{session_key:12,driver_number:1})).length,2);
- assert.equal(calls.length,2);assert.ok(calls.every(url=>url.startsWith('data/')));
+ // Three requests: the start-up index attempt, the manifest fallback, then one driver file.
+ assert.equal(calls.length,3);assert.ok(calls.every(url=>url.startsWith('data/')));
  await assert.rejects(client.query('laps',{session_key:12}),/not been downloaded/);
- assert.equal(calls.length,2);
- client.reset();await client.query('car_data',params);assert.equal(calls.length,4);
+ assert.equal(calls.length,3);
+ client.reset();await client.query('car_data',params);assert.equal(calls.length,6);
 });
 test('missing archive fails clearly without fetching external APIs',async()=>{
  const calls=[];const client=createArchiveClient(async url=>{calls.push(url);return {ok:false};});
- await assert.rejects(client.query('sessions'),/npm run update-data/);assert.deepEqual(calls,['data/2026/manifest.json']);
+ await assert.rejects(client.query('sessions'),/npm run update-data/);assert.deepEqual(calls,['data/2026/index.json','data/2026/manifest.json']);
 });
 test('saved assets are resumable, detect corruption and retry empty data',async()=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'apex-test-'));
@@ -49,4 +50,18 @@ test('browser decodes gzip archives and hosts that transparently decompress them
   const client=createArchiveClient(async url=>url.includes('manifest')?new Response(JSON.stringify(manifest)):new Response(body));
   assert.deepEqual(await client.query('car_data',{session_key:12,driver_number:1}),rows);
  }
+});
+
+test('start-up index avoids the full manifest and loads one session list on demand',async()=>{
+ const {gzipSync}=await import('node:zlib');
+ const bundle=gzipSync(JSON.stringify({format:'apex-bundle-v1',datasets:{'12/laps':[{lap_number:1}]}}));
+ const index={format:'apex-index-v1',year:2026,sessions:[{session_key:12}],sessionAssets:{12:{file:'12/bundles/index-abc123.json',sha256:'s1'}}};
+ const sessionIndex={format:'apex-session-index-v1',assets:{'12/laps':{rows:1,chunks:[{file:'12/bundles/metadata-abc123.json.gz',member:'12/laps',sha256:'b1',rawBytes:100,from:null,to:null}]}}};
+ const calls=[];
+ const client=createArchiveClient(async url=>{calls.push(url);return url.endsWith('index.json')?new Response(JSON.stringify(index)):url.includes('/index-')?new Response(JSON.stringify(sessionIndex)):new Response(bundle);});
+ assert.deepEqual(await client.query('sessions'),[{session_key:12}]);
+ assert.deepEqual(await client.query('laps',{session_key:12}),[{lap_number:1}]);
+ await client.query('laps',{session_key:12});
+ await assert.rejects(client.query('laps',{session_key:13}),/not been downloaded/);
+ assert.deepEqual(calls,['data/2026/index.json','data/2026/12/bundles/index-abc123.json?v=s1','data/2026/12/bundles/metadata-abc123.json.gz?v=b1']);
 });

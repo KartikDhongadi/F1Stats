@@ -28,9 +28,18 @@ export function filterWindow(rows, params) {
 }
 export function createArchiveClient(fetcher = fetch, year = 2026) {
   let manifestPromise, generation=0;
-  const cache=new Map(),pending=new Map();
+  const cache=new Map(),pending=new Map(),indexes=new Map();
   async function getManifest(){
     if(!manifestPromise)manifestPromise=(async()=>{
+      // Newer archives publish a small start-up index. Anything unexpected here falls back
+      // to the full manifest, so older archives keep working unchanged.
+      try{
+        const response=await fetcher(`data/${year}/index.json`,{cache:'no-store'});
+        if(response.ok){
+          const index=await response.json();
+          if(index?.format==='apex-index-v1'&&index.year===year&&Array.isArray(index.sessions)&&index.sessionAssets&&typeof index.sessionAssets==='object')return {...index,version:2,format:'apex-archive-v2'};
+        }
+      }catch{}
       const response=await fetcher(`data/${year}/manifest.json`,{cache:'no-store'});
       if(!response.ok)throw Error(`Saved ${year} data is not installed yet. Run npm run update-data -- --year ${year} --all in VS Code, then reload saved data.`);
       const json=await response.json();
@@ -38,6 +47,25 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
       return json;
     })().catch(error=>{manifestPromise=undefined;throw error;});
     return manifestPromise;
+  }
+  // One session's asset list, fetched the first time that session is opened.
+  function sessionIndex(manifest,session){
+    const entry=Object.hasOwn(manifest.sessionAssets,String(session))?manifest.sessionAssets[String(session)]:null;
+    if(!entry)return {};
+    if(!/^\d+\/bundles\/index-[a-f0-9]+\.json$/.test(entry.file))throw Error('Invalid session index path.');
+    const key=entry.file+'?v='+entry.sha256;
+    if(!indexes.has(key)){
+      const promise=(async()=>{
+        const response=await fetcher(`data/${year}/${key}`);
+        if(!response.ok)throw Error('A saved file is missing. Reload data or run the data updater to repair the archive.');
+        const value=await response.json();
+        if(value?.format!=='apex-session-index-v1'||!value.assets||typeof value.assets!=='object')throw Error('Invalid session index.');
+        return value.assets;
+      })();
+      indexes.set(key,promise);
+      promise.catch(()=>{if(indexes.get(key)===promise)indexes.delete(key);});
+    }
+    return indexes.get(key);
   }
   async function readAsset(file,asset){
     const key=file+'?v='+asset.sha256;
@@ -63,7 +91,7 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     try{return await promise;}finally{if(pending.get(key)===promise)pending.delete(key);}
   }
   return {
-    reset(){generation++;manifestPromise=undefined;cache.clear();pending.clear();},
+    reset(){generation++;manifestPromise=undefined;cache.clear();pending.clear();indexes.clear();},
     manifest:getManifest,
     async summary(){
       const manifest=await getManifest();if(!manifest.summary)return null;
@@ -75,7 +103,7 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     async query(endpoint,params={}){
       const manifest=await getManifest();
       if(endpoint==='sessions')return manifest.sessions;
-      const key=assetKey(endpoint,params),asset=manifest.assets[key];
+      const key=assetKey(endpoint,params),asset=(manifest.assets??await sessionIndex(manifest,params.session_key))[key];
       if(!asset)throw Error('This data has not been downloaded yet. Run npm run update-data for this season/weekend; no automatic OpenF1 request will be made.');
       if(manifest.version===1){
         const value=await readAsset(key+(asset.encoding==='gzip'?'.json.gz':'.json'),asset);
