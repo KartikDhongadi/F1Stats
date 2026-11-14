@@ -7,7 +7,7 @@ The app defaults to **Saved files**, reading its own static assets without OpenF
 Run from the F1Stats folder:
 
 ```sh
-# Latest completed eligible weekend in 2026:
+# Latest completed weekend in 2026, plus any missed weekends (see below):
 npm run update-data
 
 # Entire completed 2026 season:
@@ -25,6 +25,8 @@ npm run update-data -- --year 2025 --all --metadata-only
 
 The updater now saves individual source files in `.archive-source/YEAR/`, then publishes compressed bundles to `public/data/YEAR/` after a successful download run. `--metadata-only` skips telemetry downloads; it does not delete telemetry already saved locally. Existing nonempty source files are checksum-verified and skipped. Missing, corrupt and empty records are retried. `--refresh` fetches corrections. Requests are serial, paced and retried with backoff; restricted access stops the update without a paid fallback.
 
+A plain `npm run update-data` (no `--all` or `--meeting`) now does three things: it saves the latest completed weekend; it also saves any session after your first saved weekend that has files missing, so a skipped weekend is caught up automatically; and for sessions that ended in the last 14 days it re-checks `session_result`, `championship_drivers` and `championship_teams` for corrections such as post-race penalties. A re-check replaces the saved copy only when OpenF1 returns something new and non-empty; a failed or empty check keeps the saved copy. A season with nothing saved still starts with just the latest weekend, and a season saved with `--metadata-only` is not upgraded to full telemetry by the catch-up. The 14-day re-check also applies to recent sessions selected with `--all` or `--meeting`.
+
 After updating, select the season in the app and click **Reload data**. This button reloads files; it does not run the downloader. The updater defaults to 2026; use `--year` explicitly for other seasons.
 
 ## Convert or rebuild existing archives
@@ -41,7 +43,7 @@ This operation requires no OpenF1 requests. On the first conversion, the origina
 
 The converter writes bundles first, atomically switches the public manifest, then removes superseded public source files and obsolete bundles. The local originals remain. A failed conversion before the manifest switch leaves the prior public manifest intact; rerun the command after addressing the error. Do not commit/deploy while conversion is running. If interrupted after the switch, rerunning completes cleanup of obsolete bundles and superseded original files.
 
-An update and a bundle operation share `public/data/YEAR/.update.lock`; do not run both for the same year. After a crash, confirm the process is no longer running before removing a leftover lock. An interrupted download retains source progress but does not publish partial changes; rerun the update to finish and publish.
+An update and a bundle operation share `public/data/YEAR/.update.lock`; do not run both for the same year. The lock stores the process ID of the run that created it. If that process no longer exists (for example after a crash or a force-quit), the next run removes the leftover lock itself and continues; if the process is still running, the command stops with a message. An interrupted download retains source progress but does not publish partial changes; rerun the update to finish and publish.
 
 A fresh Git clone containing only version-2 bundles can reconstruct its local source archive from those bundles, checking checksums and record counts, before continuing normal updates. No full-season re-download is needed for that reconstruction.
 

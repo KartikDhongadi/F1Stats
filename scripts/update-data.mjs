@@ -1,10 +1,9 @@
-import {readFile, mkdir, open, unlink} from 'node:fs/promises';
+import {readFile, mkdir, unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {prepareSource,publishBundles} from './bundles.mjs';
-import {isRace} from '../public/race.js';
 import {eligibleSessions, assetKey} from '../public/data-store.js';
-import {atomicJson, validAsset, saveAsset, selectSessions} from './archive.mjs';
+import {atomicJson, validAsset, saveAsset, selectSessions, checksum, acquireLock, metadataEndpoints, isRecent, RECHECK_ENDPOINTS} from './archive.mjs';
 const args = process.argv.slice(2);
 const allowed = new Set(['--all', '--refresh', '--metadata-only', '--meeting', '--year', '--help']);
 for (let i=0;i<args.length;i++) {
@@ -12,7 +11,7 @@ for (let i=0;i<args.length;i++) {
   if (['--meeting','--year'].includes(args[i])) {if (!/^\d+$/.test(args[++i] || '')) throw Error('Expected a numeric argument.');}
 }
 if (args.includes('--help')) {
-  console.log('npm run update-data -- [--all | --meeting ID] [--refresh] [--metadata-only] [--year 2026]\nDefault: latest completed weekend. Practice is always excluded. Existing files are verified and skipped.');
+  console.log('npm run update-data -- [--all | --meeting ID] [--refresh] [--metadata-only] [--year 2026]\nDefault: latest completed weekend, plus any weekend after your first saved one that has files missing.\nResults and standings from the last 14 days are re-checked for corrections. Practice is always excluded. Existing files are verified and skipped.');
   process.exit(0);
 }
 if (args.includes('--all') && args.includes('--meeting')) throw Error('Use --all or --meeting, not both.');
@@ -25,9 +24,7 @@ const manifestPath = path.join(root, 'manifest.json');
 const lockPath = path.join(publicRoot, '.update.lock');
 await mkdir(publicRoot,{recursive:true});
 await mkdir(root, {recursive:true});
-let lock;
-try {lock = await open(lockPath, 'wx');} catch {throw Error(`Another update may be running. If a previous update crashed, remove ${lockPath} before retrying.`);}
-await lock.writeFile(String(process.pid));
+const lock = await acquireLock(lockPath, String(year));
 let interrupted = false;
 process.once('SIGINT', () => {interrupted = true; console.log('\nStopping after the current request; completed files are retained.');});
 let lastRequest = 0;
@@ -65,15 +62,60 @@ try {
   manifest ??= {version:1, year, source:'https://openf1.org/docs/', sessions:[], assets:{}};
   if(manifest.version!==1 || manifest.year!==year) throw Error('Archive version does not match.');
   const available = eligibleSessions(await request('sessions', {year}));
-  const selected = selectSessions(available, {all:args.includes('--all'), meeting:value('--meeting')});
+  let selected;
+  if (args.includes('--all') || args.includes('--meeting')) selected = selectSessions(available, {all:args.includes('--all'), meeting:value('--meeting')});
+  else {
+    // Default run: the latest weekend, plus anything after the first saved weekend that is
+    // recent or has files missing. A season with nothing saved still starts with one weekend.
+    const seasonHasTelemetry = Object.keys(manifest.assets).some(key => key.includes('/car_data/'));
+    async function missingFiles(session) {
+      if (!manifest.sessions.some(s => s.session_key === session.session_key)) return true;
+      const params = {session_key:session.session_key};
+      if (metadataEndpoints(session).some(endpoint => !manifest.assets[assetKey(endpoint, params)])) return true;
+      // A season saved with --metadata-only is not silently upgraded to full telemetry.
+      if (args.includes('--metadata-only') || !seasonHasTelemetry) return false;
+      try {
+        const drivers = JSON.parse(await readFile(path.join(root, assetKey('drivers', params)+'.json'), 'utf8'));
+        return drivers.some(d => !manifest.assets[assetKey('car_data', {...params, driver_number:d.driver_number})]);
+      } catch {return true;}
+    }
+    const keys = new Set(selectSessions(available).map(s => s.session_key));
+    const firstSaved = Math.min(...manifest.sessions.map(s => Date.parse(s.date_start)));
+    const added = [];
+    for (const session of available) {
+      if (keys.has(session.session_key) || !(Date.parse(session.date_start) > firstSaved)) continue;
+      if (isRecent(session) || await missingFiles(session)) {keys.add(session.session_key); added.push(session);}
+    }
+    selected = available.filter(s => keys.has(s.session_key));
+    if (added.length) console.log(`Also including ${added.length} earlier session(s) that are recent or have files missing: ${added.map(s => `${s.country_name} ${s.session_name}`).join(', ')}.`);
+  }
   if (!selected.length) throw Error('No completed eligible sessions found for this selection.');
   console.log(`Selected ${selected.length} sessions. Practice excluded. ${args.includes('--metadata-only')?'Metadata only.':'Full sampled car telemetry for all session drivers.'}`);
   const persist = async () => {manifest.updatedAt = new Date().toISOString(); await atomicJson(manifestPath, manifest);};
-  async function get(endpoint, params) {
+  async function get(endpoint, params, recheck=false) {
     const key=assetKey(endpoint, params);
-    if (!args.includes('--refresh') && await validAsset(root, key, manifest.assets[key])) {
+    const saved = !args.includes('--refresh') && await validAsset(root, key, manifest.assets[key]);
+    if (saved && !recheck) {
       console.log(`Already saved: ${key}`);
       return endpoint==='car_data' ? null : JSON.parse(await readFile(path.join(root,key+'.json'),'utf8'));
+    }
+    if (saved) {
+      // Recent results can change after penalties or corrections. The saved copy is replaced
+      // only when the provider returns something new and non-empty; a failed check keeps it.
+      console.log(`Checking for corrections: ${key}…`);
+      let rows = null;
+      try {rows = await request(endpoint, params);} catch (error) {
+        if (interrupted) throw error;
+        console.log(`Could not check ${key} (${error.message}) Keeping the saved copy.`);
+      }
+      if (rows?.length && checksum(Buffer.from(JSON.stringify(rows))) !== manifest.assets[key].sha256) {
+        await saveAsset(root,manifest,endpoint,params,rows);
+        await persist();
+        console.log(`Updated with corrections: ${rows.length} rows.`);
+        return rows;
+      }
+      if (rows) console.log(rows.length ? 'No change.' : 'Provider returned no rows; kept the saved copy.');
+      return JSON.parse(await readFile(path.join(root,key+'.json'),'utf8'));
     }
     console.log(`Downloading ${key}…`);
     const rows=await request(endpoint,params);
@@ -86,12 +128,8 @@ try {
     console.log(`\n${session.country_name} · ${session.session_name} · ${session.session_key}`);
     const params={session_key:session.session_key};
     const drivers=await get('drivers', params);
-    for(const endpoint of ['laps','session_result','stints','race_control','weather']) await get(endpoint,params);
-    if(isRace(session)){await get('position',params);await get('pit',params);}
-    if(session.session_name==='Race') {
-      await get('championship_drivers',params);
-      await get('championship_teams',params);
-    }
+    const recheck=isRecent(session);
+    for(const endpoint of metadataEndpoints(session).slice(1)) await get(endpoint,params,recheck&&RECHECK_ENDPOINTS.has(endpoint));
     // Expose the session only after its metadata has been saved successfully.
     manifest.sessions = eligibleSessions([...manifest.sessions.filter(s=>s.session_key!==session.session_key),session]);
     await persist();

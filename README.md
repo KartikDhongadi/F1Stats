@@ -40,7 +40,7 @@ npm run bundle-data
 Original individual files are retained in the Git-ignored `.archive-source/` directory, outside the deployed `public/` folder. Future `update-data` runs update those originals and publish bundles automatically. A fresh clone can reconstruct originals from the bundles. See [DATA.md](DATA.md) for migration, size limits and rollback details.
 
 
-Run `npm run update-data` to save the latest completed weekend. Then select **Saved files** and click **Reload data**. Qualifying, races, sprint qualifying and sprints are included; practice is excluded. Full-season and correction options are documented in [DATA.md](DATA.md).
+Run `npm run update-data` to save the latest completed weekend; it also catches up any missed weekends and re-checks recent results for corrections. Then select **Saved files** and click **Reload data**. Qualifying, races, sprint qualifying and sprints are included; practice is excluded. Full-season and correction options are documented in [DATA.md](DATA.md).
 
 ## Try it
 
