@@ -59,7 +59,7 @@ export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}}) 
       // Serial requests also respect the existing optional online client's pacing.
       const drivers=await query('drivers',params),laps=await query('laps',params),results=await query('session_result',params);
       let messages=[],warning='';
-      try{messages=await query('race_control',params);}catch(e){warning='Race-control records are unavailable. Lap phases and deletion status may be unconfirmed.';}
+      try{messages=await query('race_control',params);}catch(e){if(e?.superseded)throw e;warning='Race-control records are unavailable. Lap phases and deletion status may be unconfirmed.';}
       model=qualifyingModel(session,drivers,laps,results,messages);
       if(!model.rows.length){root.innerHTML='<div class="empty"><h2>No driver records available</h2><p>Reload data after this session has been downloaded.</p></div>';return;}
       selected=model.rows.flatMap(r=>r.attempts).find(l=>l.best)?.key || model.rows.flatMap(r=>r.attempts).find(l=>l.timed)?.key;

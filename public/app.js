@@ -21,13 +21,34 @@ const driverName=n=>driver(n)?.full_name||`Driver ${n}`;
 const stat=(title,value,caption)=>`<div class="stat"><small>${esc(title)}</small><strong>${esc(value)}</strong><span>${esc(caption)}</span></div>`;
 const empty=(title,body)=>`<div class="empty"><span>⌁</span><h2>${esc(title)}</h2><p>${esc(body)}</p></div>`;
 function status(message,error=false){$('#status').textContent=message;$('#status').classList.toggle('error',error);}
-let lastRequest=0;
+// --- Loading model -------------------------------------------------------------
+// Every user action runs as a task with a level: 3 = season, 2 = weekend / session / view,
+// 1 = detail (one lap's telemetry, a standings tab). A new action replaces the running
+// task when its level is the same or higher; the replaced task stops at its next data
+// read and never touches the page again. Lower-level controls stay disabled only while
+// the data they depend on is being rebuilt.
+let running=null,token=0;
+class Superseded extends Error{constructor(){super('Replaced by a newer action.');this.superseded=true;}}
+async function guard(promise){
+ const mine=token;
+ try{const value=await promise;if(mine!==token)throw new Superseded();return value;}
+ catch(error){if(mine!==token&&!error?.superseded)throw new Superseded();throw error;}
+}
+const busyLevel=()=>running?.level??0;
+let lastRequest=0,onlineTurn=Promise.resolve();
 const memory=new Map();
-async function api(endpoint,params={}){
+async function rawApi(endpoint,params={}){
  if($('#source').value==='saved')return archive.query(endpoint,params);
  const key=endpoint+'?'+new URLSearchParams(params),cacheKey='apex-v1:'+key;
  const saved=memory.get(key);if(saved&&Date.now()-saved.at<3600000)return saved.data;
  try{const cached=JSON.parse(localStorage.getItem(cacheKey));if(cached&&Date.now()-cached.at<3600000){memory.set(key,cached);return cached.data;}}catch{}
+ // Online requests take turns, so request spacing holds when a newer action replaces an
+ // older one, and a replaced request that has not started yet never reaches OpenF1.
+ const mine=token,turn=onlineTurn;let release;onlineTurn=new Promise(resolve=>release=resolve);
+ await turn;
+ try{
+ if(mine!==token)throw new Superseded();
+ const again=memory.get(key);if(again&&Date.now()-again.at<3600000)return again.data;
  await new Promise(resolve=>setTimeout(resolve,Math.max(0,1100-(Date.now()-lastRequest))));lastRequest=Date.now();
  let response;try{response=await fetch(API+key,{signal:AbortSignal.timeout(25000)});}catch{throw Error('Could not reach OpenF1. Check your internet connection and try Refresh data. Your app runs locally, but real race data needs internet.');}
  if(response.status===404){const body=await response.json().catch(()=>null);if(body?.detail==='No results found.')return [];throw Error('The requested OpenF1 data endpoint was not found.');}
@@ -35,13 +56,15 @@ async function api(endpoint,params={}){
  const data=await response.json();if(!Array.isArray(data))throw Error('OpenF1 returned an unexpected response. Try again later.');
  memory.set(key,{at:Date.now(),data});try{localStorage.setItem(cacheKey,JSON.stringify({at:Date.now(),data}));}catch{}
  return data;
+ }finally{release();}
 }
+const api=(endpoint,params)=>guard(rawApi(endpoint,params));
 let weatherRows=[];
 function showWeather(contexts){renderWeather($('#weather-summary'),weatherRows,contexts);}
 async function loadWeather(){
  weatherRows=[];showWeather([{time:NaN,label:'Loading conditions…'}]);
  const session=state.sessions.find(s=>s.session_key===Number($('#session').value));
- try{weatherRows=prepareWeather(await api('weather',{session_key:$('#session').value}));}catch{}
+ try{weatherRows=prepareWeather(await api('weather',{session_key:$('#session').value}));}catch(e){if(e?.superseded)throw e;}
  showWeather([{time:Date.parse(session?.date_start),label:(session?.session_name||'Session')+' · scheduled start'}]);
 }
 function lapWeather(){
@@ -52,14 +75,14 @@ function lapWeather(){
 }
 const driverPickers=Object.fromEntries(['a','b'].map(suffix=>[suffix,createDriverPicker($('#driver-'+suffix),()=>state.drivers,'Choose driver '+suffix.toUpperCase())]));
 const lapTools=Object.fromEntries(['a','b'].map(suffix=>[suffix,createLapTools($('#lap-'+suffix),{getLaps:()=>state.laps.filter(l=>l.driver_number===Number($('#driver-'+suffix).value))})]));
-const racePicker=createRacePicker({years:seasonYears,onSeasonChange:year=>run(()=>changeSeason(year)),loadSummary:()=>archive.summary(),onSelect:key=>run(async()=>{$('#race').value=key;await raceChanged();})});
+const racePicker=createRacePicker({years:seasonYears,onSeasonChange:year=>run(()=>changeSeason(year),3),loadSummary:()=>archive.summary(),onSelect:key=>run(async()=>{$('#race').value=key;await raceChanged();})});
 let firstRaceSelection=true;
 function refreshSelectionControls(){
  const weekend=state.races.find(s=>s.session_key===Number($('#race').value));
  $('#selected-weekend').textContent=weekend?`${weekend.country_name} · ${weekend.circuit_short_name}`:'No completed weekends';
- $('#change-race').disabled=busy;$('#browse-races').disabled=busy;
+ const seasonLoading=busyLevel()>=3;$('#change-race').disabled=seasonLoading;$('#browse-races').disabled=seasonLoading;
  const sessions=state.sessions.filter(s=>s.meeting_key===weekend?.meeting_key);
- $('#session-buttons').innerHTML=sessions.map(s=>`<button type="button" data-session="${s.session_key}" aria-pressed="${String(s.session_key)===$('#session').value}" ${busy?'disabled':''}>${esc(s.session_name==='Sprint Shootout'?'Sprint qualifying':s.session_name)}</button>`).join('');
+ $('#session-buttons').innerHTML=sessions.map(s=>`<button type="button" data-session="${s.session_key}" aria-pressed="${String(s.session_key)===$('#session').value}" ${seasonLoading?'disabled':''}>${esc(s.session_name==='Sprint Shootout'?'Sprint qualifying':s.session_name)}</button>`).join('');
  $$('[data-session]').forEach(button=>button.onclick=()=>run(async()=>{
   const session=sessions.find(s=>s.session_key===Number(button.dataset.session));
   if(![...$('#session').options].some(o=>o.value===button.dataset.session))$('#session').add(new Option(session.session_name,session.session_key));
@@ -74,7 +97,7 @@ async function sessionChanged(){state.laps=[];state.table='results';$$('[data-ta
 $('#change-race').onclick=()=>racePicker.open($('#race').value);
 $('#browse-races').onclick=()=>racePicker.open($('#race').value);
 options($('#season-year'),seasonYears,year=>year,year=>year,selectedYear);
-$('#season-year').onchange=()=>run(()=>changeSeason(Number($('#season-year').value)));
+$('#season-year').onchange=()=>run(()=>changeSeason(Number($('#season-year').value)),3);
 async function changeSeason(year){
  if(!seasonYears.includes(year))return;
  selectedYear=year;$('#season-year').value=String(year);archive=createArchiveClient(fetch,year);archiveInfo=null;
@@ -113,22 +136,50 @@ function sessionOptions(){
  options($('#session'),sessions,s=>s.session_key,s=>s.session_name,sessions.some(s=>String(s.session_key)===previous)?previous:preferred);
 }
 async function loadQualifying(){sessionOptions();await loadWeather();status('Loading qualifying overview for all drivers…');await qualifyingView.load(state.sessions.find(s=>s.session_key===Number($('#session').value)));status('Qualifying overview · Every session driver is shown · Select a lap for sector details or telemetry.');}
-let busy=false;
-async function run(task){if(busy)return;busy=true;$$('button, select').forEach(e=>e.disabled=true);$('#advanced').disabled=true;try{await task();}catch(e){status(e.message,true);$(state.view==='season'?'#table':state.view==='qualifying'?'#qualifying':state.view==='race-overview'?'#race-overview':'#telemetry').innerHTML=empty('Data could not be loaded',e.message);}finally{busy=false;$$('button, select').forEach(e=>e.disabled=false);$('#advanced').disabled=false;$$('[data-unavailable]').forEach(e=>e.disabled=true);if(!state.races.length){$('#race').disabled=true;$('#load').disabled=true;}if(!state.laps.length)$('#load').disabled=true;const weekend=state.races.find(s=>s.session_key===Number($('#race').value));$$('[data-table=drivers],[data-table=teams]').forEach(b=>{b.disabled=weekend?.session_name!=='Race';b.title=b.disabled?'Championship standings are available after the Grand Prix.':'';});refreshSelectionControls();}}
+// Controls that work at any time, and controls that depend on a loaded session.
+const ALWAYS_ENABLED='[data-view], #season-year, #picker-year, #source, #refresh, dialog [data-close]';
+const DETAIL_CONTROLS='#driver-a, #driver-b, #lap-a, #lap-b, #load, [data-table]';
+function applyBusy(){
+ const level=busyLevel();
+ $('#status').classList.toggle('loading',level>0);
+ $$('button, select').forEach(e=>{e.disabled=level>=3?!e.matches(ALWAYS_ENABLED):level===2&&e.matches(DETAIL_CONTROLS);});
+ $$('[data-unavailable]').forEach(e=>e.disabled=true);
+ if(!state.races.length){$('#race').disabled=true;$('#load').disabled=true;}
+ if(!state.laps.length)$('#load').disabled=true;
+ const weekend=state.races.find(s=>s.session_key===Number($('#race').value));
+ $$('[data-table=drivers],[data-table=teams]').forEach(b=>{const unavailable=weekend?.session_name!=='Race';b.disabled=b.disabled||unavailable;b.title=unavailable?'Championship standings are available after the Grand Prix.':'';});
+ refreshSelectionControls();
+}
+function showFailure(error,job){
+ status(error.message,true);
+ const target=$(state.view==='season'?'#table':state.view==='qualifying'?'#qualifying':state.view==='race-overview'?'#race-overview':'#telemetry');
+ target.innerHTML=`<div class="empty"><span>⌁</span><h2>Data could not be loaded</h2><p>${esc(error.message)}</p><p><button type="button" class="primary" data-retry>Try again ↻</button></p><p>Your season, race, session, driver and lap choices are kept.</p></div>`;
+ target.querySelector('[data-retry]').onclick=()=>run(job.task,job.initial);
+}
+async function run(task,level=2){
+ if(running&&level<running.level)return;
+ const mine=++token,job=running={task,level,initial:level};
+ applyBusy();
+ try{await task();}
+ catch(error){if(!error?.superseded&&mine===token)showFailure(error,job);}
+ finally{if(running===job){running=null;applyBusy();}}
+}
 function options(el,rows,value,label,selected){el.innerHTML=rows.map(r=>`<option value="${esc(value(r))}">${esc(label(r))}</option>`).join('');if(selected!=null&&rows.some(r=>String(value(r))===String(selected)))el.value=selected;}
 function completed(s){return !s.is_cancelled&&Date.parse(s.date_end)<Date.now();}
 async function init(){
  clearSeason();weatherRows=[];showWeather([{time:NaN,label:'Loading session…'}]);status(`Loading completed ${selectedYear} sessions…`);
  if($('#source').value==='saved'){
-  try{archiveInfo=await archive.manifest();}
-  catch{unavailableSeason(`Saved ${selectedYear} data is not available. Close the race grid if open and choose OpenF1 online under Data source, or download it in VS Code: npm run update-data -- --year ${selectedYear} --all`);showWeather([{time:NaN,label:'No session selected'}]);return;}
+  try{archiveInfo=await guard(archive.manifest());}
+  catch(e){if(e?.superseded)throw e;unavailableSeason(`Saved ${selectedYear} data is not available. Close the race grid if open and choose OpenF1 online under Data source, or download it in VS Code: npm run update-data -- --year ${selectedYear} --all`);showWeather([{time:NaN,label:'No session selected'}]);return;}
   $('#data-info').textContent=`Saved ${selectedYear} archive · Last updated `+new Date(archiveInfo.updatedAt).toLocaleString()+' · '+archiveInfo.sessions.length+' sessions · No OpenF1 requests from this view';
  }else $('#data-info').textContent=`${selectedYear} · Online mode · Calls OpenF1 directly · One-hour browser cache`;
  state.sessions=eligibleSessions(await api('sessions',{year:selectedYear})).filter(s=>Number(s.year)===selectedYear);
  const weekends=new Map();for(const session of state.sessions){const previous=weekends.get(session.meeting_key);if(!previous||previous.session_name!=='Race')weekends.set(session.meeting_key,session);}state.races=[...weekends.values()];
  if(!state.races.length){unavailableSeason('No completed qualifying, sprint or race sessions are available for this season and data source. Choose another season or source.');showWeather([{time:NaN,label:'No session selected'}]);return;}
  options($('#race'),state.races,s=>s.session_key,s=>`${s.country_name} · ${s.circuit_short_name}`,state.races.at(-1).session_key);
- await racePicker.load(state.races,state.sessions,$('#race').value);await raceChanged();
+ // The season is known from here on, so choosing a race or view may replace the default race load.
+ if(running){running.level=2;applyBusy();}
+ await guard(racePicker.load(state.races,state.sessions,$('#race').value));await raceChanged();
  if(firstRaceSelection){firstRaceSelection=false;racePicker.open($('#race').value);}
 }
 async function raceChanged(){const race=state.races.find(r=>r.session_key===Number($('#race').value));if(!race)return;state.traces=null;state.laps=[];$('#telemetry').innerHTML=empty('Find the story in a lap.','Choose a driver and a timed lap, then load telemetry to begin.');const sessions=state.sessions.filter(s=>s.meeting_key===race.meeting_key);options($('#session'),sessions,s=>s.session_key,s=>s.session_name,race.session_key);state.table='results';$$('[data-table]').forEach(b=>b.classList.toggle('active',b.dataset.table==='results'));if(state.view==='qualifying')await loadQualifying();else if(state.view==='race-overview')await loadRaceOverview();else{await loadRace();if(state.view!=='season')await loadSession();}}
@@ -141,10 +192,11 @@ function renderSeason(){const race=state.races.find(r=>r.session_key===Number($(
  $('#table').innerHTML=rows.length?`<table><thead><tr>${headings.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`:empty('Data not available yet','No records are available for this selection in the selected data source.');}
 function nameCell(n){return `<span class="team-line" style="background:${color(driver(n))}"></span><span class="driver-name">${esc(driverName(n))}</span>`;}
 async function tableChanged(type){state.table=type;$$('[data-table]').forEach(b=>b.classList.toggle('active',b.dataset.table===type));if(type!=='results'){status('Loading championship standings…');$('#table').innerHTML=empty('Loading standings…','Standings reflect the selected race, rather than a different point in the season.');if(type==='drivers')state.standings=await api('championship_drivers',{session_key:$('#race').value});else state.teams=await api('championship_teams',{session_key:$('#race').value});}renderSeason();status('Historical data · Standings are shown as of the selected race.');}
-async function viewChanged(view){state.view=view;$$('nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('#season').hidden=view!=='season';$('#analysis').hidden=!['explorer','compare'].includes(view);$('#qualifying').hidden=view!=='qualifying';$('#race-overview').hidden=view!=='race-overview';$('.mode').hidden=['qualifying','race-overview'].includes(view);$('#session-wrap').hidden=false;$('#b-controls').hidden=view!=='compare';const names={'race-overview':['How the race unfolded.','Follow the battles, the pace, and the strategy across the entire field.'],qualifying:['The whole session. One story.','All drivers, every attempt, and the sectors behind their qualifying times.'],season:['The season, in focus.','Go beyond the finishing order. Discover the detail behind the drive.'],explorer:['Every input. Every tenth.','Follow one driver through a lap, from full throttle to the braking zone.'],compare:['Where the difference lives.','Two laps. One shared distance axis. See where time is gained and lost.']};$('#title').textContent=names[view][0];$('#subtitle').textContent=names[view][1];$('#breadcrumb').textContent={'race-overview':'RACE OVERVIEW',qualifying:'QUALIFYING OVERVIEW',season:'SEASON OVERVIEW',explorer:'DRIVER EXPLORER',compare:'COMPARE LAPS'}[view];if(!state.races.length)return;sessionOptions();if(view==='race-overview'){await loadRaceOverview();return;}if(view==='qualifying'){await loadQualifying();return;}if(view==='season'){await loadRace();}else{await loadSession();state.traces=null;$('#telemetry').innerHTML=empty('Your next insight starts here.','Choose a timed lap for each selected driver, then load telemetry.');}}
+function showView(view){state.view=view;$$('nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('#season').hidden=view!=='season';$('#analysis').hidden=!['explorer','compare'].includes(view);$('#qualifying').hidden=view!=='qualifying';$('#race-overview').hidden=view!=='race-overview';$('.mode').hidden=['qualifying','race-overview'].includes(view);$('#session-wrap').hidden=false;$('#b-controls').hidden=view!=='compare';const names={'race-overview':['How the race unfolded.','Follow the battles, the pace, and the strategy across the entire field.'],qualifying:['The whole session. One story.','All drivers, every attempt, and the sectors behind their qualifying times.'],season:['The season, in focus.','Go beyond the finishing order. Discover the detail behind the drive.'],explorer:['Every input. Every tenth.','Follow one driver through a lap, from full throttle to the braking zone.'],compare:['Where the difference lives.','Two laps. One shared distance axis. See where time is gained and lost.']};$('#title').textContent=names[view][0];$('#subtitle').textContent=names[view][1];$('#breadcrumb').textContent={'race-overview':'RACE OVERVIEW',qualifying:'QUALIFYING OVERVIEW',season:'SEASON OVERVIEW',explorer:'DRIVER EXPLORER',compare:'COMPARE LAPS'}[view];}
+async function viewChanged(view){showView(view);if(!state.races.length)return;sessionOptions();if(view==='race-overview'){await loadRaceOverview();return;}if(view==='qualifying'){await loadQualifying();return;}if(view==='season'){await loadRace();}else{await loadSession();state.traces=null;$('#telemetry').innerHTML=empty('Your next insight starts here.','Choose a timed lap for each selected driver, then load telemetry.');}}
 async function loadSession(){state.traces=null;state.laps=[];await loadWeather();$('#telemetry').innerHTML=empty('Select a lap to explore','Telemetry will appear after you load a lap.');status('Loading session drivers and timed laps…');const key=$('#session').value;state.drivers=await api('drivers',{session_key:key});const laps=await api('laps',{session_key:key});
  const warnings=[];
- async function context(endpoint){try{return await api(endpoint,{session_key:key});}catch{warnings.push(endpoint);return [];}}
+ async function context(endpoint){try{return await api(endpoint,{session_key:key});}catch(e){if(e?.superseded)throw e;warnings.push(endpoint);return [];}}
  const stints=await context('stints'),messages=await context('race_control');
  const session=state.sessions.find(s=>s.session_key===Number(key)),pits=isRace(session)?await context('pit'):[];
  state.laps=lapChoices(laps,stints,pits,messages);const available=state.drivers.filter(d=>state.laps.some(l=>l.driver_number===d.driver_number&&l.lap_duration>0&&l.date_start));for(const suffix of ['a','b']){options($('#driver-'+suffix),available,d=>d.driver_number,d=>d.full_name,suffix==='b'?available[1]?.driver_number:available[0]?.driver_number);updateLaps(suffix);}status(available.length?'Choose a lap, use Previous / Next, or jump to the fastest clean lap.'+(warnings.length?' Some lap context is unavailable: '+warnings.join(', ')+'. Clean-lap exclusions may be incomplete.':''):'No complete timed laps are available for this session.',!available.length);}
@@ -159,4 +211,4 @@ function renderTelemetry(){if(!state.traces)return;const [a,b]=state.traces,adva
  for(const key of fields){const svg=$('#chart-'+key);svg.addEventListener('pointermove',e=>{const r=svg.getBoundingClientRect();inspect(((e.clientX-r.left)/r.width*1000-45)/940);});svg.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();inspect(e.key==='Home'?0:e.key==='End'?1:position+(e.key==='ArrowRight'?.01:-.01));}});}inspect(.5);
 }
 function drawChart(key,a,b){const svg=$('#chart-'+key),sets=key==='delta'?[deltaTrace(a,b)]:[a.points,...(b?[b.points]:[])];const values=sets.flat().map(p=>p[key]).filter(Number.isFinite);if(!values.length){svg.innerHTML='<text x="50" y="80" fill="#9199a8" font-size="14">This channel is unavailable for this lap.</text><line class="cursor"/>';return;}let min=Math.min(...values),max=Math.max(...values);if(['speed','throttle','brake','rpm','n_gear','drs'].includes(key))min=0;if(['throttle','brake'].includes(key))max=100;if(key==='delta'){min=Math.min(min,0);max=Math.max(max,0);}if(min===max){min-=1;max+=1;}const y=v=>145-(v-min)/(max-min)*125;let content='';for(let i=0;i<4;i++){const v=min+(max-min)*i/3;content+=`<line x1="45" x2="985" y1="${y(v)}" y2="${y(v)}" stroke="#29303a" stroke-dasharray="3 5"/><text x="0" y="${y(v)+4}" fill="#7c8798" font-size="10">${Math.abs(v)>100?Math.round(v):v.toFixed(1)}</text>`;}for(let i=0;i<=4;i++)content+=`<text x="${45+i*235}" y="173" text-anchor="${i===4?'end':'start'}" fill="#7c8798" font-size="10">${Math.round(a.distance*i/4)} m</text>`;sets.forEach((points,index)=>{let pen=false;const path=points.map(p=>{if(!Number.isFinite(p[key])){pen=false;return '';}const x=(45+p.progress*940).toFixed(2),yp=y(p[key]).toFixed(2);const segment=pen?(['brake','n_gear','drs'].includes(key)?`H${x}V${yp}`:`L${x},${yp}`):`M${x},${yp}`;pen=true;return segment;}).join(' ');content+=`<path d="${path}" fill="none" stroke="${index?'#79bcff':'#c6f46b'}" stroke-width="2" ${index?'stroke-dasharray="6 4"':''} vector-effect="non-scaling-stroke"/>`;});content+='<line class="cursor" x1="45" x2="45" y1="15" y2="145" stroke="#e7ecf5" opacity=".5"/>';svg.innerHTML=content;}
-$$('[data-view]').forEach(b=>b.addEventListener('click',()=>run(()=>viewChanged(b.dataset.view))));$$('[data-table]').forEach(b=>b.addEventListener('click',()=>run(()=>tableChanged(b.dataset.table))));$('#race').addEventListener('change',()=>run(raceChanged));$('#session').addEventListener('change',()=>run(sessionChanged));for(const s of ['a','b']){$('#driver-'+s).addEventListener('change',()=>updateLaps(s));$('#lap-'+s).addEventListener('change',()=>run(loadTelemetry));}$('#load').addEventListener('click',()=>run(loadTelemetry));$('#advanced').addEventListener('change',renderTelemetry);$('#source').addEventListener('change',()=>run(async()=>{archive.reset();state.laps=[];state.races=[];state.sessions=[];state.traces=null;$('#stats').innerHTML='';$('#race').innerHTML='<option>Loading…</option>';$('#data-info').textContent='';await init();}));$('#refresh').addEventListener('click',()=>run(async()=>{archive.reset();memory.clear();try{Object.keys(localStorage).filter(k=>k.startsWith('apex-v1:')).forEach(k=>localStorage.removeItem(k));}catch{}state.laps=[];await init();}));run(init);
+$$('[data-view]').forEach(b=>b.addEventListener('click',()=>{if(busyLevel()>=3)showView(b.dataset.view);else run(()=>viewChanged(b.dataset.view),2);}));$$('[data-table]').forEach(b=>b.addEventListener('click',()=>run(()=>tableChanged(b.dataset.table),1)));$('#race').addEventListener('change',()=>run(raceChanged));$('#session').addEventListener('change',()=>run(sessionChanged));for(const s of ['a','b']){$('#driver-'+s).addEventListener('change',()=>run(async()=>updateLaps(s),1));$('#lap-'+s).addEventListener('change',()=>run(loadTelemetry,1));}$('#load').addEventListener('click',()=>run(loadTelemetry,1));$('#advanced').addEventListener('change',renderTelemetry);$('#source').addEventListener('change',()=>run(async()=>{archive.reset();state.laps=[];state.races=[];state.sessions=[];state.traces=null;$('#stats').innerHTML='';$('#race').innerHTML='<option>Loading…</option>';$('#data-info').textContent='';await init();},3));$('#refresh').addEventListener('click',()=>run(async()=>{archive.reset();memory.clear();try{Object.keys(localStorage).filter(k=>k.startsWith('apex-v1:')).forEach(k=>localStorage.removeItem(k));}catch{}state.laps=[];await init();},3));run(init,3);

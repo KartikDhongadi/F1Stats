@@ -40,7 +40,7 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
           if(index?.format==='apex-index-v1'&&index.year===year&&Array.isArray(index.sessions)&&index.sessionAssets&&typeof index.sessionAssets==='object')return {...index,version:2,format:'apex-archive-v2'};
         }
       }catch{}
-      const response=await fetcher(`data/${year}/manifest.json`,{cache:'no-store'});
+      const response=await fetchRetry(`data/${year}/manifest.json`,{cache:'no-store'});
       if(!response.ok)throw Error(`Saved ${year} data is not installed yet. Run npm run update-data -- --year ${year} --all in VS Code, then reload saved data.`);
       const json=await response.json();
       if(![1,2].includes(json.version)||json.year!==year||!Array.isArray(json.sessions)||!json.assets||(json.version===2&&json.format!=='apex-archive-v2'))throw Error('Unsupported data manifest. Update the app and saved data together.');
@@ -48,6 +48,15 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     })().catch(error=>{manifestPromise=undefined;throw error;});
     return manifestPromise;
   }
+  // One quiet retry covers a dropped connection or a brief server error.
+  async function fetchRetry(url,options){
+    for(let attempt=0;;attempt++){
+      try{const response=await fetcher(url,options);if(!(response.status>=500)||attempt)return response;}
+      catch{if(attempt)throw Error('Saved data could not be reached. Check your connection, then choose Try again.');}
+      await new Promise(resolve=>setTimeout(resolve,600));
+    }
+  }
+  const missingFile=()=>Object.assign(Error('A saved file is missing. Reload data or run the data updater to repair the archive.'),{missing:true});
   // One session's asset list, fetched the first time that session is opened.
   function sessionIndex(manifest,session){
     const entry=Object.hasOwn(manifest.sessionAssets,String(session))?manifest.sessionAssets[String(session)]:null;
@@ -56,8 +65,8 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     const key=entry.file+'?v='+entry.sha256;
     if(!indexes.has(key)){
       const promise=(async()=>{
-        const response=await fetcher(`data/${year}/${key}`);
-        if(!response.ok)throw Error('A saved file is missing. Reload data or run the data updater to repair the archive.');
+        const response=await fetchRetry(`data/${year}/${key}`);
+        if(!response.ok)throw missingFile();
         const value=await response.json();
         if(value?.format!=='apex-session-index-v1'||!value.assets||typeof value.assets!=='object')throw Error('Invalid session index.');
         return value.assets;
@@ -73,8 +82,8 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     if(pending.has(key))return pending.get(key);
     const atGeneration=generation;
     const promise=(async()=>{
-      const response=await fetcher(`data/${year}/${key}`);
-      if(!response.ok)throw Error('A saved file is missing. Reload data or run the data updater to repair the archive.');
+      const response=await fetchRetry(`data/${year}/${key}`);
+      if(!response.ok)throw missingFile();
       let value;
       if(asset.encoding==='gzip'||file.endsWith('.gz')){
         if(typeof DecompressionStream==='undefined')throw Error('Saved data requires a current Safari, Chrome or Firefox browser.');
@@ -90,7 +99,7 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
     pending.set(key,promise);
     try{return await promise;}finally{if(pending.get(key)===promise)pending.delete(key);}
   }
-  return {
+  const client={
     reset(){generation++;manifestPromise=undefined;cache.clear();pending.clear();indexes.clear();},
     manifest:getManifest,
     async summary(){
@@ -101,6 +110,16 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
       return value;
     },
     async query(endpoint,params={}){
+      try{return await client.lookup(endpoint,params);}
+      catch(error){
+        if(!error?.missing)throw error;
+        // An open tab can hold an index from before a newer deployment retired this file:
+        // read the index again and try once more.
+        manifestPromise=undefined;indexes.clear();
+        return client.lookup(endpoint,params);
+      }
+    },
+    async lookup(endpoint,params={}){
       const manifest=await getManifest();
       if(endpoint==='sessions')return manifest.sessions;
       const key=assetKey(endpoint,params),asset=(manifest.assets??await sessionIndex(manifest,params.session_key))[key];
@@ -132,4 +151,5 @@ export function createArchiveClient(fetcher = fetch, year = 2026) {
       return rows;
     }
   };
+  return client;
 }

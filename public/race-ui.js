@@ -137,7 +137,7 @@ export function createRaceView(root,{query,openLaps,onWeather=()=>{}}) {
       root.innerHTML='<div class="empty"><h2>Reading the race…</h2><p>Loading lap timings, positions, tyres and race-control records.</p></div>';
       const params={session_key:session.session_key};
       const drivers=await query('drivers',params),laps=await query('laps',params),results=await query('session_result',params);
-      async function optional(endpoint,label){try{return await query(endpoint,params);}catch{warnings.push(`${label} unavailable. Saved files may need updating.`);return [];}}
+      async function optional(endpoint,label){try{return await query(endpoint,params);}catch(e){if(e?.superseded)throw e;warnings.push(`${label} unavailable. Saved files may need updating.`);return [];}}
       const positions=await optional('position','Position history'),stints=await optional('stints','Tyre stints'),pits=await optional('pit','Pit-lane records'),messages=await optional('race_control','Race-control messages');
       model=raceModel(session,drivers,lapChoices(laps,stints,pits,messages),results,positions,stints,pits,messages);
       if(!model.rows.length||!model.maxLap){root.innerHTML=noData('No race laps are available in this data source yet.');return;}
