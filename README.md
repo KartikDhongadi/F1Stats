@@ -1,5 +1,7 @@
 # APEX — F1, understood
 
+**Continuing this project with another AI assistant? Read [the project and conversation handoff](README_HANDOFF.md) first.** It records the architecture, decisions, completed features, remaining ideas and the user’s testing/Git preferences.
+
 A desktop-first dashboard for completed Formula 1 sessions from **2023 onward**, with **2026** selected initially. Real historical data comes from OpenF1. No accounts, API keys, subscriptions, npm packages, or paid services are required to run the app. Internet is required for the updater or the optional online data source. Saved data is read locally by default. See [DATA.md](DATA.md) for the saved-file workflow.
 
 ## Run on your MacBook with VS Code
@@ -100,13 +102,13 @@ npm test
 
 Tests cover distance integration, signed acceleration, delta sign, identical-lap comparison, missing samples, sorting/deduplication, discrete braking interpolation, and lap-time formatting. Tests also cover archive loading, qualifying phases, race position sampling, retirements, event alignment, stint boundaries, and missing/filtered laps. Test inputs are mathematical fixtures, not displayed race data.
 
-## Files and eventual hosting
+## Files and hosting
 
 - `public/` — the complete deployable static website.
 - `server.mjs` — local-only development server.
 - `tests/` — numerical regression tests.
 
-After local testing and explicit publication approval, the contents of `public/` can be hosted on a free static host (for example Cloudflare Pages). No backend or build step is needed. A free provider subdomain avoids domain registration costs. New changes should be tested locally before the user pushes them to the connected GitHub deployment. Rebuild any upload ZIP after changing app files or the saved archive.
+The site is hosted at [f1stats.clashjhirkande.workers.dev](https://f1stats.clashjhirkande.workers.dev), connected to [KartikDhongadi/F1Stats on GitHub](https://github.com/KartikDhongadi/F1Stats). `public/` is the complete static deployment; there is no production application server or frontend compilation step. The user tests locally and runs the Git commands to publish. Data updates/rebundling are separate local operations. Do not use old upload ZIPs for the current app.
 
 Development preference: leave automated and browser testing to the user unless they explicitly request it. Provide commit/push commands when requested; do not execute them unless explicitly instructed to do so.
 
