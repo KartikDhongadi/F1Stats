@@ -56,7 +56,7 @@ export function raceModel(session, drivers, laps, results, positions, stints, pi
     const completed=Number.isInteger(result?.number_of_laps)?result.number_of_laps:Math.max(0,...driverLaps.map(l=>l.lap_number));
     const lastKnownEnd=Math.max(-Infinity,...driverLaps.filter(l=>l.lap_number<=completed&&l.end!=null).map(l=>l.end));
     const positionPoints=clock.map(point=>({lap:point.lap,time:point.time,position:point.time==null||result?.dns||(result?.dnf&&point.time>lastKnownEnd)?null:positionAt(samples,point.time)}));
-    return {driver,result,laps:driverLaps,positionPoints,completed,stints:normalizeStints(stints.filter(s=>s.driver_number===id),completed),pits:pits.filter(p=>p.driver_number===id&&Number.isInteger(p.lap_number)&&p.lap_number>=1&&p.lap_number<=maxLap)};
+    return {driver,result,grid:samples[0]?.position??null,laps:driverLaps,positionPoints,completed,stints:normalizeStints(stints.filter(s=>s.driver_number===id),completed),pits:pits.filter(p=>p.driver_number===id&&Number.isInteger(p.lap_number)&&p.lap_number>=1&&p.lap_number<=maxLap)};
   }).sort((a,b)=>(a.result?.position??Infinity)-(b.result?.position??Infinity)||a.driver.driver_number-b.driver.driver_number);
   const seen=new Set();
   const events=messages.filter(e=>stamp(e.date)>=start&&stamp(e.date)<=end).sort((a,b)=>stamp(a.date)-stamp(b.date)).filter(e=>{
@@ -74,4 +74,32 @@ export function linePath(points, x, y, valueKey) {
     const command=previous!=null&&point.lap-previous===1?'L':'M';previous=point.lap;
     return `${command}${x(point.lap).toFixed(2)},${y(value).toFixed(2)}`;
   }).join(' ');
+}
+// Gap to the first car across the line on each race lap, measured at each driver's own
+// completion of that lap. A following lap's start stands in when a duration is missing.
+export function gapPoints(row, clock, ceiling=Infinity) {
+  const byLap=new Map(row.laps.map(lap=>[lap.lap_number,lap]));
+  return clock.map(point=>{
+    const lap=byLap.get(point.lap),next=byLap.get(point.lap+1);
+    const crossing=lap?.end??(Number.isFinite(next?.start)?next.start:null);
+    const gap=point.time==null||crossing==null||point.lap>row.completed?null:Math.max(0,(crossing-point.time)/1000);
+    return {lap:point.lap,gap,value:gap!=null&&gap<=ceiling?gap:null};
+  });
+}
+// Headline facts for the race, each traceable to one saved record.
+export function raceHighlights(model) {
+  let fastest=null,trap=null,stop=null,gain=null,ties=0;
+  for(const row of model.rows){
+    for(const lap of row.laps){
+      if(positive(lap.lap_duration)&&!lap.deleted&&(!fastest||lap.lap_duration<fastest.lap.lap_duration))fastest={row,lap};
+      if(positive(lap.st_speed)&&(!trap||lap.st_speed>trap.lap.st_speed))trap={row,lap};
+    }
+    for(const pit of row.pits)if(positive(pit.stop_duration)&&(!stop||pit.stop_duration<stop.pit.stop_duration))stop={row,pit};
+    const finish=row.result?.position;
+    if(positive(row.grid)&&positive(finish)&&!row.result.dsq){
+      const places=row.grid-finish;
+      if(!gain||places>gain.places){gain={row,places};ties=0;}else if(places===gain.places)ties++;
+    }
+  }
+  return {fastest,trap,stop,gain:gain&&gain.places>0?{...gain,ties}:null};
 }
