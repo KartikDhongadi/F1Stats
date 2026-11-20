@@ -44,22 +44,18 @@ Run `npm run update-data` to save the latest completed weekend; it also catches 
 
 ## Try it
 
-- **Choose a race weekend:** the opening selector shows large country/circuit cards, newest first. Each completed Grand Prix has a compact P1/P2/P3 podium from saved classifications when available. Use search or select a card, then use **Choose race** above the stats or the persistent **Choose race / season** button in the left sidebar to reopen the selector. Closing the grid with Close or Escape does not remove these buttons. Card previews always use saved files, even when analysis uses the optional online source; missing podiums are labelled.
-- **Session buttons:** switch directly between the available qualifying, race and sprint sessions. Switching from a race overview to qualifying opens its qualifying overview, and vice versa.
-- **Searchable driver choices:** click a driver in Explorer, Compare laps or the race lap inspector, then search by name, team, abbreviation or number. Driver A and B stay distinct. Use Tab/Enter to select and Escape to close a picker.
-
-- **Season overview:** select a completed Grand Prix; inspect results, driver standings, and constructor standings. Standings are as of that race, not necessarily the latest race.
-- **Race overview:** select a Grand Prix or sprint. Show all drivers or narrow the field; inspect positions with the race-lap slider, click lap-time points, and review tyre stints, pit visits, and race-control events. The lap inspector opens telemetry or pins a lap for comparison. Long laps can be included with **All lap times**.
-- **Qualifying overview:** explore every driver’s attempts, Q/SQ phases, sector details and best times, then open a lap or comparison.
-- **Driver explorer:** pick a session, driver, and lap, then click **Load telemetry**. The fastest eligible clean lap is selected initially; if none exists, the first available timed lap is selected and the clean-lap shortcut is disabled.
-- **Compare laps:** select two drivers/laps from the same session and load telemetry. A uses a solid lime trace and B uses a dashed blue trace.
-- Hover over a chart to inspect a shared distance cursor. Keyboard users can focus a chart and use arrow keys, Home, or End.
-- Enable **Advanced view** for estimated acceleration, RPM, gear, and DRS provider codes.
-- Try a different race/session and check that the data updates before drawing conclusions.
+- **Layout:** the left sidebar switches between **Season**, **Race**, **Qualifying** and **Telemetry**. The top bar holds the weekend button (opens the race cards), session buttons, the season selector and a **Data & settings** menu (data source, **Reload data**, archive details). Track conditions and view-specific cards sit in the column on the right.
+- **Choose a race weekend:** the race grid shows large country/circuit cards, newest first, with a P1/P2/P3 podium from saved files when available. Reopen it with the weekend button or **Choose race / season** in the sidebar.
+- **Season:** a calendar strip of saved weekends, the championship leader and win counts, a points-after-every-race chart for the top six, and results plus driver and constructor standings with places gained or lost. Standings are as of the selected race. After updating the app, run `npm run bundle-data` once so the season summary includes the points chart data.
+- **Race:** four tabs. **Story** has highlights, team-grouped driver chips, the running order and the gap to the leader. **Pace** has lap times, the lap inspector with sector colours and speed traps, and stint pace. **Strategy** has every driver's tyres and pit stops, plus fastest stops. **Events** has a lap-by-lap strip and race-control messages in plain language, with filters and the original wording one switch away.
+- **Qualifying:** every driver's attempts on a timeline, and one table with Q1/Q2/Q3, gaps, best sectors, ideal lap and cut-off lines. The selected attempt is in the right-hand column.
+- **Telemetry:** choose **One lap** or **Compare two laps**. Speed, throttle, brake and gear share one distance axis (Advanced channels adds acceleration, RPM and DRS; Compare adds the estimated gap). Values at the cursor and sector differences are in the right-hand column. Changing a lap, or using Previous, Next or Fastest clean lap, loads telemetry automatically.
+- **Searchable driver choices:** click a driver picker, then search by name, team, abbreviation or number.
+- Hover over a chart to inspect it. Keyboard users can focus the telemetry chart and use arrow keys, Home, or End.
 
 ## Weather at a glance
 
-A compact **Track conditions** summary stays beside the active statistics on desktop. It shows track and air temperature, rain status, wind, humidity and pressure. In smaller windows it sits above the same statistics.
+A compact **Track conditions** summary stays at the top of the right-hand column on desktop. It shows track and air temperature, rain status, wind, humidity and pressure. In smaller windows it sits above the content.
 
 - Race/sprint: follows the running-order lap cursor; selecting a lap, stint or pit marker shows the selected driver’s lap-start conditions.
 - Qualifying/sprint qualifying: follows the selected attempt’s start time.
