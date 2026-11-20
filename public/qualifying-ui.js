@@ -3,26 +3,35 @@ import {lapTime} from './telemetry.js';
 import {sectorBests, sectorBoxes, idealLap} from './sectors.js';
 const esc = value => String(value ?? '—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const seconds = value => typeof value === 'number' && value > 0 ? value.toFixed(3)+' s' : '—';
-export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}}) {
-  let model, selected, pinned, phase='all', includeUntimed=false, observer, bests;
+const titleCase = text => String(text).toLowerCase().replace(/(^|[\s'-])(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+const surname = driver => {const parts=String(driver?.full_name||'').trim().split(/\s+/);return parts.length>1?titleCase(parts.slice(1).join(' ')):titleCase(parts[0]||`Car ${driver?.driver_number}`);};
+const fullName = driver => {const parts=String(driver?.full_name||'').trim().split(/\s+/);return parts.length>1?parts[0]+' '+titleCase(parts.slice(1).join(' ')):driver?.full_name||`Driver ${driver?.driver_number}`;};
+const colour = driver => /^[\da-f]{6}$/i.test(driver?.team_colour||'')?'#'+driver.team_colour:'#9ca5b3';
+
+export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}, setRail=()=>null, setHeading=()=>{}}) {
+  let model, selected, pinned, phase='all', includeUntimed=false, observer, bests, lastWidth=0;
   const findLap = key => model?.rows.flatMap(r=>r.attempts).find(l=>l.key===key);
-  const driverName = number => model.rows.find(r=>r.driver.driver_number===number)?.driver.full_name || `Driver ${number}`;
+  const rowOf = number => model.rows.find(r=>r.driver.driver_number===number);
+  const driverName = number => fullName(rowOf(number)?.driver||{driver_number:number});
   function visible(lap) {return (phase==='all' || (phase==='unknown'?lap.phase==null:lap.phase===Number(phase))) && (includeUntimed || lap.timed);}
   function detail() {
-    const lap=findLap(selected), box=root.querySelector('.quali-detail');
-    if(!box)return;
-    if(!lap){onWeather({time:model.first,label:'Qualifying · session start'});box.innerHTML='<h3>Select any lap on the timeline</h3><p>Every session driver is listed, including drivers without a timed lap.</p>';return;}
-    onWeather({time:lap.start,label:`${driverName(lap.driver_number)} · Lap ${lap.lap_number} start`});
-    box.innerHTML=`<div class="quali-detail-head"><div><span class="eyebrow">SELECTED ATTEMPT</span><h2>${esc(driverName(lap.driver_number))} · Lap ${lap.lap_number}</h2><p>${lap.phase?model.prefix+lap.phase:'Phase unconfirmed'} · ${lap.deleted?'Deleted':lap.is_pit_out_lap?'Pit-out lap':lap.best?'Official phase-best lap':lap.timed?'Timed lap':'No complete lap time'}</p></div><strong class="quali-time">${lapTime(lap.lap_duration)}</strong></div><div class="quali-sectors">${sectorBoxes(bests,lap,seconds)}</div>${lap.deletionMessage?`<p class="quali-deletion">Race control: ${esc(lap.deletionMessage)}</p>`:''}<div class="quali-actions"><button class="primary" data-action="explore" ${!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Explore this lap ↗</button><button class="secondary" data-action="pin" ${!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Set as comparison A</button><button class="secondary" data-action="compare" ${!pinned||pinned===selected||!lap.timed||!Number.isFinite(lap.start)?'disabled data-unavailable':''}>Compare A with this lap ↗</button></div><p class="quali-pinned">${pinned?`Comparison A: ${esc(driverName(findLap(pinned).driver_number))} · Lap ${findLap(pinned).lap_number}. Select another lap, then compare.`:'Select a lap as A, then pick another driver’s lap to compare.'}</p>`;
-    box.querySelector('[data-action="explore"]').onclick=()=>{if(lap.timed&&Number.isFinite(lap.start))openLaps([lap]);};
-    box.querySelector('[data-action="pin"]').onclick=()=>{pinned=selected;detail();};
-    box.querySelector('[data-action="compare"]').onclick=()=>{if(pinned&&pinned!==selected&&lap.timed&&Number.isFinite(lap.start))openLaps([findLap(pinned),lap]);};
+    const lap=findLap(selected);
     root.querySelectorAll('[data-lap]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.lap===selected)));
+    if(!lap){onWeather({time:model.first,label:'Qualifying · session start'});setRail('<section class="rail-card"><span class="eyebrow-muted">SELECTED ATTEMPT</span><p class="small-note">Select any lap on the timeline. Every session driver is listed, including drivers without a timed lap.</p></section>');return;}
+    onWeather({time:lap.start,label:`${driverName(lap.driver_number)} · Lap ${lap.lap_number} start`});
+    const canOpen=lap.timed&&Number.isFinite(lap.start),row=rowOf(lap.driver_number);
+    const status=lap.deleted?'Deleted':lap.is_pit_out_lap?'Pit-out lap':lap.best?'Official phase-best lap':lap.timed?'Timed lap':'No complete lap time';
+    const el=setRail(`<section class="rail-card"><span class="eyebrow-muted">SELECTED ATTEMPT · ${lap.phase?model.prefix+lap.phase:'PHASE UNCONFIRMED'}</span><div class="focus-head"><span class="team-bar" style="background:${colour(row?.driver)}"></span><div><strong>${esc(driverName(lap.driver_number))}</strong><small>Lap ${lap.lap_number} · ${status}</small></div></div><strong class="rail-time">${lapTime(lap.lap_duration)}</strong><div class="quali-sectors stacked">${sectorBoxes(bests,lap,seconds)}</div>${lap.deletionMessage?`<p class="quali-deletion">Race control: ${esc(lap.deletionMessage)}</p>`:''}<div class="rail-actions"><button class="primary" data-action="explore" ${canOpen?'':'disabled data-unavailable'}>Explore this lap ↗</button><button class="secondary" data-action="pin" ${canOpen?'':'disabled data-unavailable'}>Set as comparison A</button><button class="secondary" data-action="compare" ${!pinned||pinned===selected||!canOpen?'disabled data-unavailable':''}>Compare A with this lap ↗</button></div><p class="small-note">${pinned?`Comparison A: ${esc(driverName(findLap(pinned).driver_number))} · Lap ${findLap(pinned).lap_number}. Select another lap, then compare.`:'Set a lap as A, then pick another lap to compare.'} Purple: fastest of the session. Green: this driver’s fastest.</p></section>`);
+    if(!el)return;
+    el.querySelector('[data-action="explore"]').onclick=()=>{if(canOpen)openLaps([lap]);};
+    el.querySelector('[data-action="pin"]').onclick=()=>{pinned=selected;detail();};
+    el.querySelector('[data-action="compare"]').onclick=()=>{if(pinned&&pinned!==selected&&canOpen)openLaps([findLap(pinned),lap]);};
   }
   function timeline() {
     if(!model)return;
     const container=root.querySelector('.quali-timeline');
     if(!container)return;
+    root.querySelectorAll('[data-phase]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.phase===String(phase))));
     const range = model.windows.find(w=>w.phase===Number(phase));
     let from=range?.start ?? model.first;
     // Include finishing laps that started before the chequered flag.
@@ -36,25 +45,33 @@ export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}}) 
       const laps=row.attempts.filter(visible), positioned=laps.filter(l=>Number.isFinite(l.start));
       const ends=[];
       const marks=positioned.map(l=>{const left=x(l.start);let lane=ends.findIndex(end=>end+4<=left);if(lane<0)lane=ends.length;ends[lane]=left+30;return {lap:l,left,lane};});
-      const height=Math.max(46,ends.length*33+12);
+      const height=Math.max(42,ends.length*33+10);
       const noTime=laps.length-positioned.length;
-      return `<div class="quali-lane" style="min-height:${height}px"><div class="quali-driver"><strong>${esc(row.driver.full_name)}</strong><small>#${row.driver.driver_number} · ${esc(row.driver.team_name || 'Team unavailable')}</small></div><div class="quali-track" style="height:${height}px">${boundaries.map(w=>`<span class="quali-boundary" style="left:${x(w.start)}px" title="${model.prefix+w.phase} started"></span>`).join('')}${marks.map(({lap:l,left,lane})=>`<button type="button" class="quali-lap ${l.deleted?'deleted':l.best?'best':!l.timed?'untimed':''}" data-lap="${l.key}" style="left:${left}px;top:${lane*33+6}px" aria-pressed="${l.key===selected}" aria-label="${esc(row.driver.full_name)}, lap ${l.lap_number}, ${l.phase?model.prefix+l.phase:'phase unconfirmed'}, ${lapTime(l.lap_duration)}${l.deleted?', deleted':''}" title="${l.phase?model.prefix+l.phase:'Unconfirmed phase'} · ${lapTime(l.lap_duration)}${l.deleted?' · deleted':''}">${l.deleted?'×':l.lap_number}</button>`).join('')}${!marks.length?'<span class="quali-no-laps">No attempts with timestamps in this selection</span>':''}</div></div>${noTime?`<div class="quali-unplaced">${esc(row.driver.full_name)} · missing start time: ${laps.filter(l=>!Number.isFinite(l.start)).map(l=>`<button class="secondary" data-lap="${l.key}">Lap ${l.lap_number} · ${lapTime(l.lap_duration)}</button>`).join('')}</div>`:''}`;
+      return `<div class="quali-lane" style="min-height:${height}px"><div class="quali-driver"><span class="team-line" style="background:${colour(row.driver)}"></span><span><strong>${esc(surname(row.driver))}</strong><small>${row.result?.position?'P'+row.result.position+' · ':''}#${row.driver.driver_number}</small></span></div><div class="quali-track" style="height:${height}px">${boundaries.map(w=>`<span class="quali-boundary" style="left:${x(w.start)}px" title="${model.prefix+w.phase} started"></span>`).join('')}${marks.map(({lap:l,left,lane})=>`<button type="button" class="quali-lap ${l.deleted?'deleted':l.best?'best':!l.timed?'untimed':''}" data-lap="${l.key}" style="left:${left}px;top:${lane*33+6}px" aria-pressed="${l.key===selected}" aria-label="${esc(fullName(row.driver))}, lap ${l.lap_number}, ${l.phase?model.prefix+l.phase:'phase unconfirmed'}, ${lapTime(l.lap_duration)}${l.deleted?', deleted':''}" title="Lap ${l.lap_number} · ${l.phase?model.prefix+l.phase:'Unconfirmed phase'} · ${lapTime(l.lap_duration)}${l.deleted?' · deleted':''}">${l.deleted?'×':l.lap_number}</button>`).join('')}${!marks.length?'<span class="quali-no-laps">No attempts with timestamps in this selection</span>':''}</div></div>${noTime?`<div class="quali-unplaced">${esc(fullName(row.driver))} · missing start time: ${laps.filter(l=>!Number.isFinite(l.start)).map(l=>`<button class="secondary" data-lap="${l.key}">Lap ${l.lap_number} · ${lapTime(l.lap_duration)}</button>`).join('')}</div>`:''}`;
     }).join('')}</div>`;
     container.querySelectorAll('[data-lap]').forEach(button=>button.onclick=()=>{selected=button.dataset.lap;detail();});
     root.querySelector('.quali-phase-labels').textContent=boundaries.map(w=>`${model.prefix+w.phase} starts ${((w.start-model.first)/60000).toFixed(1)} min`).join(' · ')||'Phase boundaries are not confirmed in the available race-control records.';
   }
-  function heatmap() {
-    const fastest=[0,1,2].map(i=>Math.min(...model.rows.map(r=>r.best[i]).filter(v=>v!=null)));
-    const slowest=[0,1,2].map(i=>Math.max(...model.rows.map(r=>r.best[i]).filter(v=>v!=null)));
-    return `<div class="quali-table-wrap"><table class="quali-table"><thead><tr><th>POS</th><th>DRIVER</th>${[1,2,3].map(i=>`<th>${model.prefix+i} BEST</th>`).join('')}<th>${model.prefix}1 → LAST TIME</th><th>IDEAL LAP</th></tr></thead><tbody>${model.rows.map(r=>{
-      const ideal=idealLap(bests,r.driver.driver_number),actual=Math.min(...r.best.filter(v=>v!=null));
-      const last=r.best.findLast(v=>v!=null),delta=r.best[0]!=null&&r.best.slice(1).some(v=>v!=null)?last-r.best[0]:null;
-      return `<tr><td>${r.result?.position??'—'}</td><td>${esc(r.driver.full_name)}${r.result?.dsq?' · DSQ':r.result?.dns?' · DNS':''}</td>${r.best.map((t,i)=>{const alpha=t==null?0:.08+.22*(1-(t-fastest[i])/Math.max(.001,slowest[i]-fastest[i]));return `<td style="background:rgba(198,244,107,${alpha})">${t==null?'<span class="quali-missing">No time</span>':`${lapTime(t)}<small>${Math.abs(t-fastest[i])<.0001?'Phase fastest':`+${(t-fastest[i]).toFixed(3)} s`}</small>`}</td>`;}).join('')}<td>${delta==null?'—':`${delta>0?'+':''}${delta.toFixed(3)} s`}</td><td>${ideal==null?'<span class="quali-missing">Incomplete sectors</span>':`${lapTime(ideal)}${Number.isFinite(actual)?`<small>${ideal-actual>=0?'+':'−'}${Math.abs(ideal-actual).toFixed(3)} s vs best time</small>`:''}`}</td></tr>`;
-    }).join('')}</tbody></table></div>`;
+  function resultsTable() {
+    const fastest=[0,1,2].map(i=>{const v=model.rows.map(r=>r.best[i]).filter(v=>v!=null);return v.length?Math.min(...v):null;});
+    const pole=model.rows.find(r=>r.result?.position===1);
+    const poleTime=pole?pole.best.findLast(v=>v!=null):null;
+    let previous=null,html='';
+    for(const r of model.rows){
+      for(const phaseIndex of [2,1]){
+        if(previous&&r.result?.position&&previous.best[phaseIndex]!=null&&r.best[phaseIndex]==null)
+          html+=`<tr class="cut-row"><td colspan="10"><span>${model.prefix}${phaseIndex+1} cut-off</span></td></tr>`;
+      }
+      const ideal=idealLap(bests,r.driver.driver_number),own=r.best.filter(v=>v!=null),best=own.length?Math.min(...own):null;
+      const drv=bests.drivers.get(r.driver.driver_number)||[null,null,null];
+      html+=`<tr><td>${r.result?.position??'—'}</td><td><span class="team-line" style="background:${colour(r.driver)}"></span><strong>${esc(surname(r.driver))}</strong>${r.result?.dsq?' <small>DSQ</small>':r.result?.dns?' <small>DNS</small>':''}</td>${r.best.map((t,i)=>`<td class="${t!=null&&fastest[i]!=null&&Math.abs(t-fastest[i])<.0001?'is-purple':''}">${t==null?'<span class="quali-missing">—</span>':`${lapTime(t)}<small>${Math.abs(t-fastest[i])<.0001?'Phase fastest':`+${(t-fastest[i]).toFixed(3)}`}</small>`}</td>`).join('')}<td class="num">${r===pole?'Pole':best!=null&&poleTime!=null?`+${(best-poleTime).toFixed(3)}`:'—'}</td>${drv.map((t,i)=>`<td class="num ${t!=null&&bests.session[i]!=null&&t<=bests.session[i]+1e-9?'is-purple':'is-muted'}">${t!=null?t.toFixed(3):'—'}</td>`).join('')}<td class="num">${ideal==null?'<span class="quali-missing">Incomplete</span>':`${lapTime(ideal)}${best!=null&&best-ideal>0.0005?`<small class="is-gain">−${(best-ideal).toFixed(3)} possible</small>`:''}`}</td></tr>`;
+      previous=r;
+    }
+    return `<div class="table-scroll"><table class="quali-table"><thead><tr><th scope="col">POS</th><th scope="col">DRIVER</th>${[1,2,3].map(i=>`<th scope="col">${model.prefix+i}</th>`).join('')}<th scope="col" class="num">GAP</th><th scope="col" class="num">BEST S1</th><th scope="col" class="num">BEST S2</th><th scope="col" class="num">BEST S3</th><th scope="col" class="num">IDEAL LAP</th></tr></thead><tbody>${html}</tbody></table></div>`;
   }
   return {
     async load(session) {
-      observer?.disconnect(); model=null; selected=null; pinned=null; phase='all';includeUntimed=false;
+      observer?.disconnect(); model=null; selected=null; pinned=null; phase='all';includeUntimed=false;setRail('');
       if(!isQualifying(session)){root.innerHTML='<div class="empty"><h2>Choose a qualifying session</h2><p>Select Qualifying or Sprint Qualifying above. The timeline includes every driver in that session.</p></div>';return;}
       root.innerHTML='<div class="empty"><h2>Reading the whole session…</h2><p>Loading timings, results and race-control records.</p></div>';
       const params={session_key:session.session_key};
@@ -65,13 +82,22 @@ export function createQualifyingView(root, {query, openLaps, onWeather=()=>{}}) 
       model=qualifyingModel(session,drivers,laps,results,messages);
       bests=sectorBests(model.rows.flatMap(r=>r.attempts));
       if(!model.rows.length){root.innerHTML='<div class="empty"><h2>No driver records available</h2><p>Reload data after this session has been downloaded.</p></div>';return;}
-      selected=model.rows.flatMap(r=>r.attempts).find(l=>l.best)?.key || model.rows.flatMap(r=>r.attempts).find(l=>l.timed)?.key;
+      // Open on the final confirmed phase; every driver stays listed whichever phase is shown.
+      const lastPhase=Math.max(0,...model.windows.map(w=>w.phase));phase=lastPhase?String(lastPhase):'all';
+      const pole=model.rows.find(r=>r.result?.position===1),second=model.rows.find(r=>r.result?.position===2);
+      const index=pole?pole.best.findLastIndex(v=>v!=null):-1;
+      const margin=pole&&second&&index>=0&&second.best[index]!=null?second.best[index]-pole.best[index]:null;
+      const sprint=/Sprint|Shootout/i.test(session.session_name);
+      const date=new Date(session.date_start).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+      setHeading(`${String(session.country_name||'').toUpperCase()} · ${sprint?'SPRINT QUALIFYING':'QUALIFYING'} · ${date.toUpperCase()}`,pole?`${surname(pole.driver)} on ${sprint?'sprint ':''}pole${margin!=null?` by ${margin.toFixed(3)} s`:''}`:`${session.country_name} ${session.session_name}`,pole&&second?`${fullName(pole.driver)} beat ${fullName(second.driver)}${index>=0?` in ${model.prefix}${index+1}`:''}. Every driver and every attempt is below.`:'Every driver and every attempt is below.');
+      selected=(pole&&pole.attempts.find(l=>l.best&&l.phase===index+1)?.key)||model.rows.flatMap(r=>r.attempts).find(l=>l.best)?.key||model.rows.flatMap(r=>r.attempts).find(l=>l.timed)?.key;
       const unknown=model.rows.flatMap(r=>r.attempts).filter(l=>l.phase==null).length;
-      root.innerHTML=`<div class="note">${model.rows.length} drivers · ${laps.length} recorded laps · ${esc(session.country_name)} ${esc(session.session_name)}${warning?`<br>${esc(warning)}`:''}</div><div class="panel quali-detail" aria-live="polite"></div><div class="panel quali-timeline-panel"><div class="panel-heading"><div><span class="eyebrow">EVERY DRIVER · EVERY ATTEMPT</span><h2>Qualifying timeline</h2></div><div class="quali-controls"><label>PHASE<select id="quali-phase"><option value="all">Whole session</option>${[1,2,3].map(i=>`<option value="${i}">${model.prefix+i}</option>`).join('')}<option value="unknown">Unconfirmed phase (${unknown})</option></select></label><label class="mode"><input type="checkbox" id="quali-untimed"> Include untimed laps</label></div></div><p class="muted">Numbers are lap numbers. Select any attempt. All drivers remain visible when filtering phases.</p><div class="quali-phase-labels muted"></div><div class="quali-timeline"></div><div class="quali-legend"><span>● Timed lap</span><span class="a">■ Official phase-best lap</span><span class="quali-deletion">× Deleted lap</span><span>○ Untimed lap</span><span>Dashed lines: confirmed phase starts · Time axis: elapsed minutes</span></div></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">OFFICIAL SESSION RESULTS</span><h2>${model.prefix}1 / ${model.prefix}2 / ${model.prefix}3 performance</h2></div></div><p class="muted">Each column compares drivers within that phase. “No time” means no recorded result; it does not necessarily mean elimination. Negative improvement means faster. Ideal lap adds each driver’s three best sector times from laps that were not deleted, compared with their best phase time; it is a what-if, not a recorded lap.</p>${heatmap()}</div><details class="method"><summary>Timing, phases and deleted laps</summary><p>Phase-best values come from the provider’s final result array. Timeline phases use explicit qualifying_phase labels, or lap start times within confirmed session start/finish events. Restarts remain in the same phase. Laps started before the chequered flag stay in that phase even if they finish later. Unconfirmed phases are kept separately.</p><p>Deleted/reinstated status is applied only when a race-control message identifies both driver and lap. All timed laps, including slow, pit-out or deleted attempts, can be inspected. Missing timestamps are listed separately. This view does not infer eliminations or tyre-adjusted pace.</p></details>`;
-      root.querySelector('#quali-phase').onchange=e=>{phase=e.target.value;timeline();};
+      root.innerHTML=`${warning?`<div class="note">${esc(warning)}</div>`:''}<div class="panel quali-timeline-panel"><div class="panel-heading"><div><span class="eyebrow">EVERY DRIVER · EVERY ATTEMPT</span><h2>Qualifying timeline</h2></div><div class="chip-row">${[1,2,3].map(i=>`<button type="button" class="chip" data-phase="${i}">${model.prefix+i}</button>`).join('')}<button type="button" class="chip" data-phase="all">Whole session</button>${unknown?`<button type="button" class="chip" data-phase="unknown">Unconfirmed · ${unknown}</button>`:''}<label class="mode"><input type="checkbox" id="quali-untimed"> Include untimed laps</label></div></div><div class="panel-body"><p class="small-note quali-phase-labels"></p><div class="quali-timeline"></div></div><div class="quali-legend"><span><i class="lg lg-lap"></i>Timed lap</span><span><i class="lg lg-best"></i>Official phase-best lap</span><span><i class="lg lg-del"></i>Deleted lap</span><span><i class="lg lg-untimed"></i>Untimed lap</span><span>Numbers are lap numbers · dashed lines: confirmed phase starts · axis: elapsed minutes</span></div></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">OFFICIAL RESULTS</span><h2>Every driver, every phase</h2></div></div>${resultsTable()}<p class="small-note panel-foot">Purple: fastest of the session. Small figures under phase times compare with that phase’s fastest. Cut-off lines follow the recorded results. Gap compares each driver’s best phase time with the pole lap. Ideal lap adds each driver’s three best sectors from laps that were not deleted; it is a what-if, not a recorded lap.</p></div><details class="method"><summary>Timing, phases and deleted laps</summary><p>Phase-best values come from the provider’s final result array. Timeline phases use explicit qualifying_phase labels, or lap start times within confirmed session start/finish events. Restarts remain in the same phase. Laps started before the chequered flag stay in that phase even if they finish later. Unconfirmed phases are kept separately.</p><p>Deleted/reinstated status is applied only when a race-control message identifies both driver and lap. All timed laps, including slow, pit-out or deleted attempts, can be inspected. Missing timestamps are listed separately. This view does not infer eliminations or tyre-adjusted pace.</p></details>`;
+      root.querySelectorAll('[data-phase]').forEach(b=>b.onclick=()=>{phase=b.dataset.phase;timeline();});
       root.querySelector('#quali-untimed').onchange=e=>{includeUntimed=e.target.checked;timeline();};
       timeline(); detail();
-      observer=new ResizeObserver(()=>timeline());observer.observe(root.querySelector('.quali-timeline'));
+      const box=root.querySelector('.quali-timeline');lastWidth=box.clientWidth;
+      observer=new ResizeObserver(()=>{if(box.clientWidth!==lastWidth){lastWidth=box.clientWidth;timeline();}});observer.observe(box);
     }
   };
 }

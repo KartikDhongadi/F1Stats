@@ -1,11 +1,74 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Explore completed Formula 1 seasons with understandable telemetry and lap comparisons."><title>APEX — F1, understood.</title><link rel="stylesheet" href="style.css"></head><body>
-<aside><a class="brand" href="./"><span class="mark">≋</span> APEX<span class="brand-sub">RACE INTELLIGENCE</span></a><div class="nav-label">WORKSPACE</div><nav aria-label="Main navigation"><button data-view="season" class="active">◫ <span>Season overview</span></button><button data-view="race-overview">↗ <span>Race overview</span></button><button data-view="qualifying">▥ <span>Qualifying overview</span></button><button data-view="explorer">⌁ <span>Driver explorer</span></button><button data-view="compare">⇄ <span>Compare laps</span></button></nav><button id="browse-races" class="browse-races" type="button" aria-haspopup="dialog">▦ Choose race / season</button><div class="sidebar-bottom"><span class="dot"></span> Historical data<br><small><span id="sidebar-season">2026</span> FIA Formula 1 season<br>Powered by OpenF1</small></div></aside>
-<main><header><span>THE PADDOCK / <b id="breadcrumb">SEASON OVERVIEW</b></span><span class="badge" id="season-badge">2026 SEASON</span></header><section class="heading"><div><div class="eyebrow">EVERY LAP TELLS A STORY</div><h1 id="title">The season, in focus.</h1><p id="subtitle">Go beyond the finishing order. Discover the detail behind the drive.</p></div><label class="mode"><input id="advanced" type="checkbox"> Advanced view</label></section>
-<p id="data-info" class="data-info"></p><div id="status" role="status" aria-live="polite">Connecting to OpenF1…</div><div class="toolbar"><label>SEASON<select id="season-year" aria-label="Season year"></select></label><label>DATA SOURCE<select id="source"><option value="saved">Saved files (no API calls)</option><option value="online">OpenF1 online</option></select></label><select id="race" aria-label="Grand Prix" hidden disabled><option>Loading completed races…</option></select><div class="weekend-selection"><span class="eyebrow">SELECTED WEEKEND</span><strong id="selected-weekend">Loading weekends…</strong><button id="change-race" class="primary" aria-haspopup="dialog" type="button">▦ Choose race</button></div><div id="session-wrap"><span class="session-label">SESSION</span><select id="session" aria-label="Session" hidden></select><div id="session-buttons" class="session-buttons" role="group" aria-label="Weekend sessions"></div></div><button id="refresh" class="secondary">↻ Reload data</button></div>
-<div class="workspace-layout"><div class="workspace-content">
-<section id="season"><div id="stats" class="stats"></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">THE CLASSIFICATION</span><h2 id="race-heading">Race results</h2></div><div class="tabs" role="group" aria-label="Classification"><button data-table="results" class="active">Race results</button><button data-table="drivers">Drivers</button><button data-table="teams">Constructors</button></div></div><p id="table-context" class="muted"></p><div id="table"></div></div><div class="callout"><div class="callout-icon">⌁</div><div><h3>There’s more to a lap than a time.</h3><p>Explore how a driver builds speed, gets on the brakes, and finds the next tenth.</p></div><button data-view="explorer" class="primary">Explore a driver ↗</button></div></section>
-<section id="race-overview" hidden></section>
-<section id="qualifying" hidden></section>
-<section id="analysis" hidden><div class="driver-controls panel"><div><span class="legend a">A — SOLID LINE</span><label>DRIVER<select id="driver-a"></select></label><label>LAP<select id="lap-a"></select></label></div><div id="b-controls" hidden><span class="legend b">B — DASHED LINE</span><label>DRIVER<select id="driver-b"></select></label><label>LAP<select id="lap-b"></select></label></div><button id="load" class="primary">Load telemetry ↗</button></div><div id="telemetry"><div class="empty"><span>⌁</span><h2>Find the story in a lap.</h2><p>Choose a driver and a timed lap, then load telemetry to begin.</p></div></div></section>
-</div><div id="weather-summary" class="weather-summary" role="complementary" aria-label="Weather alongside session statistics"></div></div>
-<footer><span>APEX / An independent fan project. Not affiliated with Formula 1 or the FIA.</span><a href="https://openf1.org/docs/" target="_blank" rel="noreferrer">Data & methodology ↗</a></footer></main><script type="module" src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Explore completed Formula 1 seasons with understandable telemetry and lap comparisons.">
+<title>APEX — F1, understood.</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <a class="brand" href="./"><span class="mark" aria-hidden="true">A</span><span><strong>APEX</strong><small>F1, UNDERSTOOD</small></span></a>
+  <nav aria-label="Main navigation">
+    <button type="button" data-view="season" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>Season</span></button>
+    <button type="button" data-view="race-overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4M4 4h12l-2 4 2 4H4"/></svg><span>Race</span></button>
+    <button type="button" data-view="qualifying"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><span>Qualifying</span></button>
+    <button type="button" data-view="explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-6 4 3 5-8 4 5"/></svg><span>Telemetry</span></button>
+  </nav>
+  <button id="browse-races" class="browse-races" type="button" aria-haspopup="dialog">Choose race / season</button>
+  <div class="sidebar-bottom"><span class="dot"></span>Historical data<small><span id="sidebar-season">2026</span> FIA Formula 1 season · Powered by OpenF1</small></div>
+</aside>
+<main>
+  <header class="topbar">
+    <button id="change-race" class="weekend-button" type="button" aria-haspopup="dialog"><span class="weekend-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="weekend-text"><small id="season-badge">2026 SEASON</small><strong id="selected-weekend">Loading weekends…</strong></span><span class="chev" aria-hidden="true">⌄</span></button>
+    <select id="race" aria-label="Grand Prix" hidden disabled><option>Loading completed races…</option></select>
+    <div id="session-wrap"><select id="session" aria-label="Session" hidden></select><div id="session-buttons" class="session-buttons" role="group" aria-label="Weekend sessions"></div></div>
+    <div class="topbar-right">
+      <label class="inline-label">SEASON<select id="season-year" aria-label="Season year"></select></label>
+      <details class="settings" id="settings">
+        <summary aria-label="Data and settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></summary>
+        <div class="settings-menu">
+          <span class="eyebrow-muted">DATA & SETTINGS</span>
+          <label>DATA SOURCE<select id="source"><option value="saved">Saved files (no API calls)</option><option value="online">OpenF1 online</option></select></label>
+          <button id="refresh" class="secondary" type="button">↻ Reload data</button>
+          <p id="data-info" class="data-info"></p>
+          <a href="https://openf1.org/docs/" target="_blank" rel="noreferrer">Data &amp; methodology ↗</a>
+        </div>
+      </details>
+    </div>
+  </header>
+  <div id="status" role="status" aria-live="polite">Connecting to OpenF1…</div>
+  <section class="page-heading"><div><div class="eyebrow" id="breadcrumb">SEASON</div><h1 id="title">The season, in focus.</h1><p id="subtitle">Go beyond the finishing order. Discover the detail behind the drive.</p></div></section>
+  <div class="workspace-layout">
+    <div class="workspace-content">
+      <section id="season">
+        <div class="panel"><div class="panel-heading"><div><span class="eyebrow">CALENDAR</span><h2 id="calendar-heading">Race weekends</h2></div></div><div id="season-calendar" class="calendar-strip"></div></div>
+        <div id="stats" class="stats"></div>
+        <div class="panel" id="season-progress-panel"><div class="panel-heading"><div><span class="eyebrow">THE TITLE FIGHT</span><h2>Points after every race</h2></div></div><div id="season-progress" class="race-chart"></div><p class="small-note panel-foot" id="season-progress-note"></p></div>
+        <div class="panel"><div class="panel-heading"><div><span class="eyebrow">THE CLASSIFICATION</span><h2 id="race-heading">Race results</h2></div><div class="tabs" role="group" aria-label="Classification"><button type="button" data-table="results" class="active">Results</button><button type="button" data-table="drivers">Drivers</button><button type="button" data-table="teams">Constructors</button></div></div><p id="table-context" class="small-note panel-pad"></p><div id="table" class="table-scroll"></div></div>
+      </section>
+      <section id="race-overview" hidden></section>
+      <section id="qualifying" hidden></section>
+      <section id="analysis" hidden>
+        <div class="panel driver-controls">
+          <div class="mode-switch" role="group" aria-label="Telemetry mode"><button type="button" data-view="explorer" class="active">One lap</button><button type="button" data-view="compare">Compare two laps</button></div>
+          <div><span class="legend a">A · SOLID</span><label>DRIVER<select id="driver-a"></select></label><label>LAP<select id="lap-a"></select></label></div>
+          <div id="b-controls" hidden><span class="legend b">B · DASHED</span><label>DRIVER<select id="driver-b"></select></label><label>LAP<select id="lap-b"></select></label></div>
+          <div class="controls-end"><label class="mode"><input id="advanced" type="checkbox"> Advanced channels</label><button id="load" class="primary" type="button">Load telemetry ↗</button></div>
+        </div>
+        <div id="telemetry"><div class="empty"><span>⌁</span><h2>Find the story in a lap.</h2><p>Choose a driver and a timed lap, then load telemetry to begin.</p></div></div>
+      </section>
+    </div>
+    <div class="rail">
+      <div id="weather-summary" class="weather-summary" role="complementary" aria-label="Track conditions for the current selection"></div>
+      <div id="rail-extra" class="rail-extra"></div>
+    </div>
+  </div>
+  <footer><span>APEX · An independent fan project. Not affiliated with Formula 1 or the FIA.</span><a href="https://openf1.org/docs/" target="_blank" rel="noreferrer">Data: OpenF1 · Times in UTC ↗</a></footer>
+</main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

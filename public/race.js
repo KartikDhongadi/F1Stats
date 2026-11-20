@@ -103,3 +103,25 @@ export function raceHighlights(model) {
   }
   return {fastest,trap,stop,gain:gain&&gain.places>0?{...gain,ties}:null};
 }
+// Race laps where most drivers with a recorded stint were on intermediate or wet tyres.
+// Derived only from stint records; laps without stint coverage are never counted as wet.
+export function wetBands(rows, maxLap, share=.5) {
+  const bands=[];let start=null;
+  for(let lap=1;lap<=maxLap+1;lap++){
+    let total=0,wet=0;
+    if(lap<=maxLap)for(const row of rows){const stint=row.stints.find(s=>lap>=s.lap_start&&lap<=s.end);if(!stint)continue;total++;if(['INTERMEDIATE','WET'].includes(stint.compound))wet++;}
+    const isWet=total>0&&wet/total>share;
+    if(isWet&&start==null)start=lap;
+    if(!isWet&&start!=null){bands.push({from:start,to:lap-1});start=null;}
+  }
+  return bands;
+}
+// Typical pace of each stint: the median of eligible laps, leaving out the stint's first and
+// last lap, pit-out and pit-in laps and deleted laps. Fuel and traffic are not accounted for.
+export function stintPace(row) {
+  return row.stints.map(stint=>{
+    const times=row.laps.filter(l=>l.lap_number>stint.lap_start&&l.lap_number<stint.end&&positive(l.lap_duration)&&!l.is_pit_out_lap&&!l.pitIn&&!l.inferredPitIn&&!l.deleted).map(l=>l.lap_duration).sort((a,b)=>a-b);
+    const middle=times.length>>1;
+    return {...stint,count:times.length,best:times[0]??null,median:times.length?(times.length%2?times[middle]:(times[middle-1]+times[middle])/2):null};
+  });
+}
